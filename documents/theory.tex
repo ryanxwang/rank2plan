@@ -1,0 +1,148 @@
+\documentclass[a4paper, 11pt]{article}
+\usepackage{natbib}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage{amssymb}
+
+\setlength\topmargin{-0.25in} \setlength\oddsidemargin{-0.25in}
+\setlength\textheight{9.0in} \setlength\textwidth{7.0in}
+\setlength\columnsep{0.375in} \newlength\titlebox \setlength\titlebox{2.25in}
+\setlength\headheight{0pt}  \setlength\headsep{0pt}
+
+\parindent 10pt
+\topsep 4pt plus 1pt minus 2pt
+\partopsep 1pt plus 0.5pt minus 0.5pt
+\itemsep 0.5pt plus 1pt minus 0.5pt
+\parsep 2pt plus 1pt minus 0.5pt
+\leftmargin 10pt \leftmargini 13pt \leftmarginii 10pt \leftmarginiii 5pt \leftmarginiv 5pt \leftmarginv 5pt \leftmarginvi 5pt
+\labelwidth\leftmargini\advance\labelwidth-\labelsep \labelsep 5pt
+\def\@listi{\leftmargin\leftmargini}
+\def\@listii{\leftmargin\leftmarginii
+\labelwidth\leftmarginii\advance\labelwidth-\labelsep
+\topsep 2pt plus 1pt minus 0.5pt
+\parsep 1pt plus 0.5pt minus 0.5pt
+\itemsep \parsep}
+\def\@listiii{\leftmargin\leftmarginiii
+\labelwidth\leftmarginiii\advance\labelwidth-\labelsep
+\topsep 1pt plus 0.5pt minus 0.5pt
+\parsep \z@
+\partopsep 0.5pt plus 0pt minus 0.5pt
+\itemsep \topsep}
+\def\@listiv{\leftmargin\leftmarginiv
+\labelwidth\leftmarginiv\advance\labelwidth-\labelsep}
+\def\@listv{\leftmargin\leftmarginv
+\labelwidth\leftmarginv\advance\labelwidth-\labelsep}
+\def\@listvi{\leftmargin\leftmarginvi
+\labelwidth\leftmarginvi\advance\labelwidth-\labelsep}
+\abovedisplayskip 7pt plus2pt minus5pt%
+\belowdisplayskip \abovedisplayskip
+\abovedisplayshortskip 0pt plus3pt%
+\belowdisplayshortskip 4pt plus3pt minus3pt%
+
+
+\bibliographystyle{abbrvnat}
+\setcitestyle{authoryear,open={(},close={)}}
+
+\newcommand{\R}{\ensuremath{\mathbb{R}}}
+\newcommand{\Pc}{\ensuremath{\mathcal{P}}}
+\newcommand{\slack}{\ensuremath{\xi}}
+\newcommand{\slacks}{\ensuremath{\bm{\xi}}}
+\newcommand{\weight}{\ensuremath{\beta}}
+\newcommand{\weights}{\ensuremath{\bm{\beta}}}
+
+\newtheorem{definition}{Definition}
+\newtheorem{lemma}{Lemma}
+
+\newcommand\numberthis{\addtocounter{equation}{1}\tag{\theequation}}
+
+\title{Theory for Rank2Plan}
+
+\begin{document}
+
+\maketitle
+
+\section{First Order Methods}
+
+While the linear programs we seek to solve for ranking are similar to that
+\citet{Dedieu2022}, there are a few important differences. This in particular
+means we have to adapt the first order methods used by \citet{Dedieu2022} to
+find an initial low-accuracy solution. The following discussion is based on
+Section 4 of \citet{Dedieu2022}.
+
+The ranking problem can be described as given a set of feature vectors $X \in
+    \R^{n \times p}$, and a set of pairs $P = \{(i, j)\}$,
+find a ranking function $r: \R^p \rightarrow \R$ such that $r(X_j) - r(X_i)
+    \ge g_{i,j} \in \R_{\ge}$ with importance $s_{i,j} \in \R_{\ge}$.\footnote{Note that the order of $i$
+    and $j$ means we prefer lower values} We restrict $r$ to be a linear
+function with zero bias, in which case the ranking problem can be formulated
+as the following linear program
+\begin{align*}
+    \Pc_\lambda := \min_{\slacks \in \R^m} & \sum_{(i,j) \in P} s_{i, j} \slack_{i,j} + \lambda \sum_{i = 1}^p \weight^+_i + \lambda \sum_{i=1}^p \weight^-_i                                 \\
+    \text{s.t.}                            & \weights^+ X_j^T - \weights^- X_j^T - \weights^+ X_i^T + \weights^- X_i^T \ge g_{i,j} - \slack_{i,j} \ \ (i, j) \in P \numberthis \label{eqn:lp} \\
+                                           & \slacks \ge 0, \weights^+ \ge 0, \weights^- \ge 0
+\end{align*}
+where $m = |P|$ and $r$ is given by $r(\bm{x}) = \weights \bm{x}^T$ where $\weights =
+    \weights^+ - \weights^-$.
+
+\subsection{Solving the Composite Form with Nesterov's Smoothing}
+
+For scaler $u$, we have that $\max(0, u) = \frac12 (u + |u|) = \max_{|w|
+        \le 1} \frac12 (u + wu)$ with the maximum achieved when $w =
+    \text{sign}(u)$. Using this, the hinge loss in $\Pc_\lambda$ can thus be expressed
+as
+\begin{equation}
+    \sum_{(i,j) \in P} (z_{i,j})_+ = \max_{\lVert \bm{w} \rVert_\infty \le 1} \sum_{(i,j) \in P} \frac12 [z_{i,j} + w_{i,j} z_{i,j}], \label{eqn:hinge-loss-expanded}
+\end{equation}
+where $z_{i,j} = s_{i,j}(g_{i,j} - (X_j^T \weights - X_i^T \weights))$. At this
+point, it is tempting to just divide by $s_{i,j} g_{i,j}$ to retrieve the same
+form as used in \citet{Dedieu2022}, which would make everything really easy!
+Unfortunately, to preserve the original solution to the LP, we cannot divide
+different terms by a different value and so we must do the work ourselves.
+
+One can obtain a smooth approximate of \eqref{eqn:hinge-loss-expanded}
+as\footnote{We abuse the notation slightly and treat $\bm{w}$ and $\bm{z}$ as
+    vectors even though they are indexed by the pair $(i, j)$.}
+\begin{equation}
+    H^\tau(\bm{z}) := \max_{\lVert \bm{w} \rVert_\infty \le 1} \sum_{(i,j) \in P} \frac12 [z_{i,j} + w_{i,j} z_{i,j}] - \frac{\tau}{2} \lVert w \rVert_2^2,
+\end{equation}
+where $\tau$ controls the smoothness of $H^\tau$ and how well it approximates
+the original hinge loss (where $\tau=0$).
+
+The following lemma, which is lemma 7 from \citet{Dedieu2022} and originally from
+\citet{Nesterov2005}, characterises $H^\tau$.
+\begin{lemma}\label{lem:smooth-approximation}
+    The function $\bm{z} \mapsto H^\tau(\bm{z})$ is an $O(\tau)$ approximation
+    for the hinge loss $H^0(\bm{z})$, i.e. $H^0(\bm{z}) \in [H^\tau(\bm{z}),
+            H^\tau(\bm{z}) + n\tau / 2]$ for all $\bm{z}$. Furthermore, $H^\tau(\bm{z})$
+    has Lipschitz continuous gradient with parameter $1/(4\tau)$, i.e. $\lVert
+        \nabla H^\tau(\bm{z}) - \nabla H^\tau(\bm{z'}) \rVert \le 1/(4\tau) \lVert \bm{z} - \bm{z'} \rVert_2$.
+\end{lemma}
+
+Let us define,
+\begin{equation}
+    F^\tau(\weights) = \max_{\lVert \bm{w} \rVert_\infty \le 1} \left\{ \sum_{(i, j) \in P} \frac12 [s_{i,j}(g_{i,j} - (X_j^T \weights - X_i^T \weights)) + w_{i,j}s_{i,j}(g_{i,j} - (X_j^T \weights - X_i^T \weights)) ] - \frac{\tau}{2} \lVert \bm{w} \rVert_2^2 \right\}. \label{eqn:f-tau}
+\end{equation}
+By Lemma \ref{lem:smooth-approximation}, $F^\tau$ is a uniform
+$O(\tau)$-approximation of the hinge loss function. Its gradient is given by,
+\begin{equation}
+    \nabla F^\tau(\weights) = -\frac12 \sum_{(i, j) \in P} (1 + w_{i,j}^\tau) s_{i,j} (X_j - X_i) \in \R^p \label{eqn:f-tau-derivative}
+\end{equation}
+where $\bm{w}^\tau$ is the optimal solution to (\ref{eqn:f-tau}) at $\weights$.
+Further, $\weights \mapsto \nabla F^\tau(\weights)$ is Lipschitz-continuous with
+parameter $C^\tau = \sigma_{\text{max}}(\tilde{X}^T \tilde{X}) / (4 \tau)$ where
+$\tilde{X}$ is the matrix with rows given by $s_{i, j} (X_{j} - X_{i})^T$ for $(i,
+    j) \in P$ and $\sigma_{\text{max}}$ denotes the maximum eigenvalue as
+\begin{align*}
+    \lVert \bm{z} - \bm{z'} \rVert_2^2 & =\sum_{(i, j) \in P} [s_{i, j} (g_{i, j} - (X_j^T \weights - X_i^T \weights)) - (s_{i, j} (g_{i, j} - (X_j^T \weights' - X_i^T \weights')))]^2 \\
+                                       & =\sum_{(i, j) \in P} [s_{i, j} (X_j - X_i)^T(\weights' - \weights)]^2                                                                          \\
+                                       & =\sum_{(i, j) \in P} [\tilde{X}_{i,j}^T(\weights' - \weights)]^2                                                                               \\
+                                       & =\lVert \tilde{X} (\weights - \weights') \rVert_2^2                                                                                            \\
+                                       & \le \lVert \tilde{X} \rVert_2^2 \lVert \weights - \weights' \rVert_2^2                                                                         \\
+                                       & = \sigma_{\text{max}} (\tilde{X}^T \tilde{X}) \lVert \weights - \weights' \rVert_2^2
+\end{align*}
+
+The rest then follows directly in the exact same logic as Section 4 of \citet{Dedieu2022}.
+
+\bibliography{theory}
+
+\end{document}
