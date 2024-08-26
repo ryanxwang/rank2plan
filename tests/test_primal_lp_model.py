@@ -1,9 +1,9 @@
-from rank2plan.lp_models import PrimalLpModel
+from rank2plan import LpModel
 import numpy as np
 
 
 def test_primal_lp(small_ranking_dataset):
-    model = PrimalLpModel()
+    model = LpModel(use_column_generation=False, use_constraint_generation=False)
     X_train, pairs = small_ranking_dataset
     model.fit(X_train, pairs)
 
