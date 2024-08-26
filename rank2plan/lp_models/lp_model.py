@@ -12,6 +12,8 @@ class LpModel(Model):
         C=1.0,
         verbose=False,
     ) -> None:
+        if C <= 0:
+            raise ValueError(f"C ({C}) must be positive")
         if not use_column_generation and not use_constraint_generation:
             self._underlying = PrimalLpModel(solver, C=C, verbose=verbose)
 

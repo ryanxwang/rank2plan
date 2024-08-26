@@ -29,7 +29,7 @@ class PrimalLpModel(Model):
 
         Args:
             solver (LpSolver): The solver to use.
-            C (float, optional): Regularisation Parameter. Defaults to 1.0.
+            C (float, optional): Regularisation parameter. Defaults to 1.0.
             verbose (bool, optional): Whether to print messages. Defaults to
             False.
         """
@@ -42,7 +42,7 @@ class PrimalLpModel(Model):
         N = X.shape[0]
         P = X.shape[1]
 
-        prob = LpProblem("SimpleLP", LpMinimize)
+        prob = LpProblem("PrimalLp", LpMinimize)
         beta_plus: List[LpVariable] = []
         beta_minus: List[LpVariable] = []
 
