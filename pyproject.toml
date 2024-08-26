@@ -6,7 +6,7 @@ authors = ["Ryan Wang <ryanxiaowang2001@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.8,<3.11"
 numpy = "1.22.0"
 pulp = "2.8.0"
 
