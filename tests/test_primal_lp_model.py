@@ -2,8 +2,10 @@ from rank2plan import LpModel
 import numpy as np
 
 
-def test_primal_lp(small_ranking_dataset):
-    model = LpModel(use_column_generation=False, use_constraint_generation=False)
+def test_primal_lp(small_ranking_dataset, pulp_cbc):
+    model = LpModel(
+        pulp_cbc, use_column_generation=False, use_constraint_generation=False
+    )
     X_train, pairs = small_ranking_dataset
     model.fit(X_train, pairs)
 

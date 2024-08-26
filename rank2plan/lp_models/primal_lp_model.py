@@ -9,8 +9,8 @@ from pulp import (
     LpVariable,
     lpDot,
     lpSum,
-    PULP_CBC_CMD,
     LpAffineExpression,
+    LpSolver,
 )
 
 
@@ -21,28 +21,21 @@ class PrimalLpModel(Model):
 
     def __init__(
         self,
+        solver: LpSolver,
         C=1.0,
-        msgs=False,
-        solver_time_limit: Optional[float] = None,
-        seed=0,
+        verbose=False,
     ) -> None:
-        """Initialize the model.
+        """Initialise the primal LP model.
 
         Args:
-            C (float, optional): The regularisation parameter of the SVM.
-            Defaults to 1.0.
-            msgs (bool, optional): Whether to print messages, including those of
-            the LP solver. Defaults to False.
-            solver_time_limit (Optional[float], optional): The time limit for
-            the LP solver in seconds. This does not limit the time used to
-            create the problem, which can take some time for large problems.
-            Defaults to None
-            seed (int, optional): The seed for the LP solver. Defaults to 0.
+            solver (LpSolver): The solver to use.
+            C (float, optional): Regularisation Parameter. Defaults to 1.0.
+            verbose (bool, optional): Whether to print messages. Defaults to
+            False.
         """
+        self.solver = solver
         self.C = C
-        self.msgs = msgs
-        self.solver_time_limit = solver_time_limit
-        self.seed = seed
+        self.verbose = verbose
         self._weights = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:
@@ -78,16 +71,9 @@ class PrimalLpModel(Model):
         )
         prob += main_objective + regularisation_objective
 
-        # TODO-someday: make solver configurable
-        solver = PULP_CBC_CMD(
-            msg=self.msgs,
-            options=[f"RandomS {self.seed}"],
-            timeLimit=self.solver_time_limit,
-            mip=False,
-        )
-        prob.solve(solver)
+        prob.solve(self.solver)
 
-        if self.msgs:
+        if self.verbose:
             print(f"Overall objective: {prob.objective.value()}")  # type: ignore
             print(f"Main objective: {main_objective.value()}")
             print(f"Regularisation object: {regularisation_objective.value()}")

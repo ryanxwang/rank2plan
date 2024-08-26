@@ -3,6 +3,7 @@ import numpy as np
 from numpy import ndarray
 from typing import List, Tuple
 from rank2plan.types import Pair
+from pulp import LpSolver, PULP_CBC_CMD
 
 
 @pytest.fixture
@@ -21,3 +22,8 @@ def small_ranking_dataset() -> Tuple[ndarray, List[Pair]]:
     pairs = [Pair(1, 0), Pair(1, 2), Pair(1, 3), Pair(1, 4), Pair(5, 6)]
 
     return (X, pairs)
+
+
+@pytest.fixture
+def pulp_cbc() -> LpSolver:
+    return PULP_CBC_CMD(mip=False, msg=False, timeLimit=10, options=["RandomS 0"])
