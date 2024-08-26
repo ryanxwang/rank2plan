@@ -1,0 +1,23 @@
+import pytest
+import numpy as np
+from numpy import ndarray
+from typing import List, Tuple
+from rank2plan.types import Pair
+
+
+@pytest.fixture
+def small_ranking_dataset() -> Tuple[ndarray, List[Pair]]:
+    X = np.array(
+        [
+            [1.0, 1.0],
+            [2.0, 2.0],
+            [1.2, 1.2],
+            [1.3, 1.3],
+            [0.9, 0.9],
+            [2.2, 2.2],
+            [1.3, 1.3],
+        ]
+    )
+    pairs = [Pair(1, 0), Pair(1, 2), Pair(1, 3), Pair(1, 4), Pair(5, 6)]
+
+    return (X, pairs)
