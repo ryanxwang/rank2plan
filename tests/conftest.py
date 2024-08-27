@@ -38,6 +38,8 @@ def miconic_mock_dataset() -> Tuple[ndarray, List[Pair]]:
         )
         for pair in raw["pairs"]
     ]
+    # sample only 2000 pairs for speed
+    pairs = pairs[:2000]
 
     return (X, pairs)
 

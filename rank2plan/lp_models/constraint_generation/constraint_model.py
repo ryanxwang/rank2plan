@@ -39,7 +39,7 @@ class ConstraintModel(Model):
         custom_print(f"Initial sampling done in {time() - start:.3f} seconds")
 
         problem = self._build_subproblem(
-            X_tilde, pairs, constraint_indices, None, None, verbose=self.verbose
+            X_tilde, pairs, constraint_indices, None, verbose=self.verbose
         )
 
         N, P = X_tilde.shape
@@ -60,19 +60,15 @@ class ConstraintModel(Model):
 
             if len(constraint_indices) != N:
                 # get parameters
-                beta_plus = np.array(
-                    [
-                        problem.variablesDict()[f"beta_plus_{p}"].varValue
-                        for p in range(P)
-                    ]
+                beta_plus = [
+                    problem.variablesDict()[f"beta_plus_{p}"] for p in range(P)
+                ]
+                beta_minus = [
+                    problem.variablesDict()[f"beta_minus_{p}"] for p in range(P)
+                ]
+                beta = np.array(
+                    [beta_plus[p].varValue - beta_minus[p].varValue for p in range(P)]
                 )
-                beta_minus = np.array(
-                    [
-                        problem.variablesDict()[f"beta_minus_{p}"].varValue
-                        for p in range(P)
-                    ]
-                )
-                beta = beta_plus - beta_minus
 
                 # find constraints with negative reduced cost
                 reduced_costs = gs[np.array(constraints_to_check)] - np.dot(
@@ -126,7 +122,6 @@ class ConstraintModel(Model):
         X_tilde: ndarray,
         pairs: List[Pair],
         constraint_indices: List[int],
-        current_problem: Optional[LpProblem],
         warm_start: Optional[ndarray],
         verbose=False,
     ) -> LpProblem:
@@ -142,62 +137,41 @@ class ConstraintModel(Model):
         ]
         custom_print(f"Subproblem with {N_constraints} constraints and {P} features")
 
-        if current_problem is None:
-            problem = LpProblem("ConstraintGenerationSubproblem", LpMinimize)
+        problem = LpProblem("ConstraintGenerationSubproblem", LpMinimize)
 
-            # Hinge loss
-            xi = [
-                LpVariable(
-                    f"xi_{constraint_id}_{pairs[constraint_id].i}_{pairs[constraint_id].j}",
-                    lowBound=0,
-                )
-                for constraint_id in constraint_indices
-            ]
+        # Hinge loss
+        xi = [
+            LpVariable(
+                f"xi_{constraint_id}_{pairs[constraint_id].i}_{pairs[constraint_id].j}",
+                lowBound=0,
+            )
+            for constraint_id in constraint_indices
+        ]
 
-            # Beta
-            beta_plus = [LpVariable(f"beta_plus_{p}", lowBound=0) for p in range(P)]
-            beta_minus = [LpVariable(f"beta_minus_{p}", lowBound=0) for p in range(P)]
+        # Beta
+        beta_plus = [LpVariable(f"beta_plus_{p}", lowBound=0) for p in range(P)]
+        beta_minus = [LpVariable(f"beta_minus_{p}", lowBound=0) for p in range(P)]
 
+        problem += (
+            self.C * lpDot(sample_weights, xi) + lpSum(beta_plus) + lpSum(beta_minus)
+        )
+
+        # Only the selected constraints
+        for i, constraint_id in enumerate(constraint_indices):
+            pair = pairs[constraint_id]
+            # we've multiplied both sides by the sample weight
             problem += (
-                self.C * lpDot(sample_weights, xi)
-                + lpSum(beta_plus)
-                + lpSum(beta_minus)
+                lpDot(X_tilde[constraint_id], beta_plus)
+                - lpDot(X_tilde[constraint_id], beta_minus)
+                >= pair.gap * pair.sample_weight - pair.sample_weight * xi[i]
             )
 
-            # Only the selected constraints
-            for i, constraint_id in enumerate(constraint_indices):
-                pair = pairs[constraint_id]
-                # we've multiplied both sides by the sample weight
-                problem += (
-                    lpDot(X_tilde[constraint_id], beta_plus)
-                    - lpDot(X_tilde[constraint_id], beta_minus)
-                    >= pair.gap * pair.sample_weight - pair.sample_weight * xi[i]
-                )
+        if warm_start is not None:
+            for i in range(P):
+                beta_plus[i].varValue = max(0, warm_start[i])
+                beta_minus[i].varValue = max(0, -warm_start[i])
 
-            if warm_start is not None:
-                for i in range(P):
-                    beta_plus[i].varValue = max(0, warm_start[i])
-                    beta_minus[i].varValue = max(0, -warm_start[i])
-
-        else:
-            # if the problem already exists, we simply just update the objective
-            problem = current_problem.copy()
-
-            xi = [
-                problem.variablesDict()[
-                    f"xi_{constraint_id}_{pairs[constraint_id].i}_{pairs[constraint_id].j}"
-                ]
-                for constraint_id in constraint_indices
-            ]
-            beta_plus = [problem.variablesDict()[f"beta_plus_{p}"] for p in range(P)]
-            beta_minus = [problem.variablesDict()[f"beta_minus_{p}"] for p in range(P)]
-            problem.setObjective(
-                self.C * lpDot(sample_weights, xi)
-                + lpSum(beta_plus)
-                + lpSum(beta_minus)
-            )
-
-        custom_print(f"Subproblem built/updated in {time() - start:.3f} seconds")
+        custom_print(f"Subproblem built in {time() - start:.3f} seconds")
         return problem
 
     def _add_constraints_to_subproblem(
@@ -206,10 +180,13 @@ class ConstraintModel(Model):
         pairs: List[Pair],
         problem: LpProblem,
         violated_constraints: List[int],
-        beta_plus: ndarray,
-        beta_minus: ndarray,
+        beta_plus: List[LpVariable],
+        beta_minus: List[LpVariable],
         verbose=False,
     ):
+        xis_to_add = []
+        sample_weights_to_add = []
+
         for violated_constraint in violated_constraints:
             pair = pairs[violated_constraint]
             xi_violated = LpVariable(
@@ -220,6 +197,12 @@ class ConstraintModel(Model):
                 - lpDot(X_tilde[violated_constraint], beta_minus)
                 >= pair.gap * pair.sample_weight - pair.sample_weight * xi_violated
             )
+            xis_to_add.append(xi_violated)
+            sample_weights_to_add.append(pair.sample_weight)
+
+        problem.setObjective(
+            problem.objective + lpDot(xis_to_add, sample_weights_to_add)
+        )
 
         return problem
 
@@ -236,7 +219,7 @@ def compute_X_tilde(X: ndarray, pairs: List[Pair]) -> ndarray:
     """
     X_tilde = []
     for pair in pairs:
-        X_tilde.append(pair.sample_weight * (X[pair.i] - X[pair.j]))
+        X_tilde.append(pair.sample_weight * (X[pair.j] - X[pair.i]))
     return np.array(X_tilde)
 
 
@@ -267,6 +250,9 @@ def _init_sampling_smoothing(
     )  # lambda (1/C) relative to norms
 
     N0 = int(min(10 * P, N / 4))
+    if N0 < 3:
+        custom_print("Not enough samples to perform initial sampling, returning none")
+        return []
 
     start_time = time()
     custom_print("Finding initial solution using first-order method")
@@ -319,7 +305,6 @@ def _init_sampling_smoothing(
             # )
             # beta_sample = np.concatenate([beta_sample, np.array([beta0_sample])])
 
-        custom_print(f"Sampled beta: {beta_sample}")
         old_beta_averaged = np.copy(beta_averaged)
         beta_averaged += np.array(beta_sample)
         delta_variance = np.linalg.norm(
