@@ -1,5 +1,7 @@
 # rank2plan
 
+[![Tests](https://github.com/ryanxwang/rank2plan/actions/workflows/pytest.yml/badge.svg?branch=main)](https://github.com/ryanxwang/rank2plan/actions/workflows/pytest.yml)
+
 Implementation of constraint generation and column generation (soon) for solving
 large L1-RankSVMs with hinge loss (with pair-specific gaps) and sample weights.
 This is based on the work by Dedieu et al (2022) on solving large L1-SVMs with
