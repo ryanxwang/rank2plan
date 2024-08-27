@@ -190,6 +190,7 @@ class ConstraintModel(Model):
         problem.setObjective(
             problem.objective + lpDot(xis_to_add, sample_weights_to_add)
         )
+        LOGGER.info("Constraints added and objective updated")
 
         return problem
 
