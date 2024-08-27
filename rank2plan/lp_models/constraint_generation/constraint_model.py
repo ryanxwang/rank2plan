@@ -16,7 +16,7 @@ class ConstraintModel(Model):
     (Dedieu et al, 2022).
     """
 
-    def __init__(self, solver: LpSolver, C=1.0, verbose=False, tol=1e-2) -> None:
+    def __init__(self, solver: LpSolver, C=1.0, verbose=False, tol=1e-4) -> None:
         self.solver = solver
         self.C = C
         self.verbose = verbose
