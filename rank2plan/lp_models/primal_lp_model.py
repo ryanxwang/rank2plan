@@ -57,9 +57,6 @@ class PrimalLpModel(Model):
         xi: List[LpVariable] = []
         sample_weights: List[float] = []
         for pair_id, pair in enumerate(pairs):
-            if np.array_equal(X[pair.i], X[pair.j]):
-                continue
-
             xi.append(LpVariable(f"xi_{pair_id}_{pair.i}_{pair.j}", lowBound=0))
             # this order of j and i makes lower scores better
             prob += h_values[pair.j] - h_values[pair.i] >= pair.gap - xi[-1]
