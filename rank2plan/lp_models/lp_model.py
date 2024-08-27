@@ -15,14 +15,13 @@ class LpModel(Model):
         use_constraint_generation=False,
         C=1.0,
         tol=1e-4,
-        verbose=False,
     ) -> None:
         if C <= 0:
             raise ValueError(f"C ({C}) must be positive")
         if not use_column_generation and not use_constraint_generation:
-            self._underlying = PrimalLpModel(solver, C=C, verbose=verbose)
+            self._underlying = PrimalLpModel(solver, C=C)
         elif use_constraint_generation and not use_column_generation:
-            self._underlying = ConstraintModel(solver, C=C, verbose=verbose, tol=tol)
+            self._underlying = ConstraintModel(solver, C=C, tol=tol)
         else:
             raise NotImplementedError("Column generation not implemented yet")
 

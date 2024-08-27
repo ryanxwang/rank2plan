@@ -15,6 +15,11 @@ pulp = "2.8.0"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.2"
 
+[tool.pytest.ini_options]
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

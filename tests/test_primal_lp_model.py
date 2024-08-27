@@ -3,7 +3,7 @@ from rank2plan.metrics import kendall_tau
 import numpy as np
 
 
-def test_primal_lp(small_ranking_dataset, pulp_cbc):
+def test_primal_lp_simple(small_ranking_dataset, pulp_cbc):
     model = LpModel(
         pulp_cbc, use_column_generation=False, use_constraint_generation=False
     )
@@ -23,3 +23,15 @@ def test_primal_lp(small_ranking_dataset, pulp_cbc):
     assert test_scores.shape == (3,)
     assert test_scores[1] < test_scores[0]
     assert test_scores[1] < test_scores[2]
+
+
+def test_primal_lp_miconic(miconic_mock_dataset, pulp_cbc):
+    model = LpModel(
+        pulp_cbc,
+        use_column_generation=False,
+        use_constraint_generation=False,
+    )
+    X, pairs = miconic_mock_dataset
+    model.fit(X, pairs)
+    train_scores = model.predict(X)
+    assert kendall_tau(pairs, train_scores) > 0.5

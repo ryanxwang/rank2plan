@@ -12,6 +12,9 @@ from pulp import (
     LpAffineExpression,
     LpSolver,
 )
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PrimalLpModel(Model):
@@ -23,19 +26,15 @@ class PrimalLpModel(Model):
         self,
         solver: LpSolver,
         C=1.0,
-        verbose=False,
     ) -> None:
         """Initialise the primal LP model.
 
         Args:
             solver (LpSolver): The solver to use.
             C (float, optional): Regularisation parameter. Defaults to 1.0.
-            verbose (bool, optional): Whether to print messages. Defaults to
-            False.
         """
         self.solver = solver
         self.C = C
-        self.verbose = verbose
         self._weights = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:
@@ -50,9 +49,11 @@ class PrimalLpModel(Model):
             beta_plus.append(LpVariable(f"beta_plus_{p}", lowBound=0))
             beta_minus.append(LpVariable(f"beta_minus_{p}", lowBound=0))
 
+        LOGGER.info("Created variables, constructing h values")
         h_values: List[LpAffineExpression] = [
             lpDot(beta_plus, X[i]) - lpDot(beta_minus, X[i]) for i in range(N)
         ]
+        LOGGER.info(f"Constructing h values, building problem")
 
         xi: List[LpVariable] = []
         sample_weights: List[float] = []
@@ -67,13 +68,14 @@ class PrimalLpModel(Model):
             beta_minus
         )
         prob += main_objective + regularisation_objective
+        LOGGER.info("Problem build, solving")
 
         prob.solve(self.solver)
 
-        if self.verbose:
-            print(f"Overall objective: {prob.objective.value()}")  # type: ignore
-            print(f"Main objective: {main_objective.value()}")
-            print(f"Regularisation object: {regularisation_objective.value()}")
+        LOGGER.info("Finished solving")
+        LOGGER.info(f"Overall objective: {prob.objective.value()}")  # type: ignore
+        LOGGER.info(f"Main objective: {main_objective.value()}")
+        LOGGER.info(f"Regularisation object: {regularisation_objective.value()}")
 
         self._weights = np.array(
             [beta_plus[i].varValue - beta_minus[i].varValue for i in range(P)]  # type: ignore

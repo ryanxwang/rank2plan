@@ -3,6 +3,9 @@ from numpy import ndarray
 import time
 import math
 from rank2plan import Pair, LossType, PenalisationType
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 def smoothing_hinge_loss(
@@ -16,12 +19,7 @@ def smoothing_hinge_loss(
     tau: float,
     n_iter: int,
     is_sparse=False,
-    verbose=False,
 ):
-    def custom_print(str):
-        if verbose:
-            print(f"[{smoothing_hinge_loss.__name__}] {str}")
-
     # TYPE_PENALIZATION = 1 : L1 -> soft thresholding
     # TYPE_PENALIZATION = 2 : L2
 
@@ -91,12 +89,12 @@ def smoothing_hinge_loss(
         t_AGD_old = t_AGD
         eta_m_old = eta_m
 
-    custom_print(f"Number of iterations: {test}")
-    custom_print(f"X_tilde shape: {X_tilde.shape}")
+    LOGGER.info(f"Number of iterations: {test}")
+    LOGGER.info(f"X_tilde shape: {X_tilde.shape}")
 
     # ---Support
     idx_columns_smoothing = np.where(beta_m[:P] != 0)[0]
-    custom_print(f"Len support smoothing: {idx_columns_smoothing.shape[0]}")
+    LOGGER.info(f"Len support smoothing: {idx_columns_smoothing.shape[0]}")
 
     # ---Constraints
     ##### USE B0 !!!!!!!
@@ -111,11 +109,11 @@ def smoothing_hinge_loss(
 
     idx_samples_smoothing = np.arange(N)[constraints >= 0]
 
-    custom_print(f"Number violated constraints: {idx_samples_smoothing.shape[0]}")
-    custom_print(f"Convergence rate: {np.linalg.norm(beta_m - old_beta):.3f}")
+    LOGGER.info(f"Number violated constraints: {idx_samples_smoothing.shape[0]}")
+    LOGGER.info(f"Convergence rate: {np.linalg.norm(beta_m - old_beta):.3f}")
 
     time_smoothing = time.time() - start_time
-    custom_print(f"Smoothing time: {time_smoothing:.3f}")
+    LOGGER.info(f"Smoothing time: {time_smoothing:.3f}")
 
     return (
         idx_samples_smoothing.tolist(),
@@ -215,12 +213,7 @@ def loop_smoothing_hinge_loss_samples_restricted(
     tau_max: float,
     n_loop: int,
     n_iter: int,
-    verbose=False,
 ):
-    def custom_print(str):
-        if verbose:
-            print(f"[{loop_smoothing_hinge_loss_samples_restricted.__name__}] {str}")
-
     # n_loop: how many times should we run the loop ?
     # Apply the smoothing technique from the best subset selection
 
@@ -243,7 +236,7 @@ def loop_smoothing_hinge_loss_samples_restricted(
 
     test = -1
     while np.linalg.norm(beta_smoothing - old_beta) > 1e-4 and test < n_loop:
-        custom_print(
+        LOGGER.info(
             f"Test CV before tau: {np.linalg.norm(beta_smoothing - old_beta):.4f}"
         )
 
@@ -260,7 +253,6 @@ def loop_smoothing_hinge_loss_samples_restricted(
             highest_eig,
             tau,
             n_iter,
-            verbose=verbose,
         )
 
         if test == 0:
@@ -275,8 +267,8 @@ def loop_smoothing_hinge_loss_samples_restricted(
         tau = 0.7 * tau
 
     time_smoothing_tot = time.time() - start_time
-    custom_print(f"Num iters: {test}")
-    custom_print(f"Total smoothing time: {time_smoothing_tot:.3f}")
+    LOGGER.info(f"Num iters: {test}")
+    LOGGER.info(f"Total smoothing time: {time_smoothing_tot:.3f}")
 
     return idx_samples.tolist(), beta_smoothing
 

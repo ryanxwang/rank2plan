@@ -8,7 +8,6 @@ def test_constraint_generation_simple(small_ranking_dataset, pulp_cbc):
         pulp_cbc,
         use_column_generation=False,
         use_constraint_generation=True,
-        verbose=True,
     )
     X, pairs = small_ranking_dataset
     model.fit(X, pairs)
@@ -30,7 +29,6 @@ def test_constraint_generation_miconic(miconic_mock_dataset, pulp_cbc):
         pulp_cbc,
         use_column_generation=False,
         use_constraint_generation=True,
-        verbose=True,
     )
     X, pairs = miconic_mock_dataset
     model.fit(X, pairs)
