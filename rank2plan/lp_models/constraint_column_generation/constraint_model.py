@@ -1,10 +1,17 @@
 from rank2plan import Model, Pair, LossType, PenalisationType
-from rank2plan.lp_models.initialisation.smoothing_hinge_loss import (
+from rank2plan.lp_models.constraint_column_generation.smoothing_hinge_loss import (
     loop_smoothing_hinge_loss_samples_restricted,
+)
+from rank2plan.lp_models.constraint_column_generation.utils import compute_X_tilde
+from rank2plan.lp_models.objective_values import (
+    compute_main_objective,
+    compute_overall_objective,
+    compute_regularisation_objective,
 )
 from pulp import LpSolver, LpProblem, LpMinimize, LpVariable, lpSum, lpDot
 import numpy as np
 from numpy import ndarray
+import math
 from time import time
 import random
 from typing import List, Optional
@@ -32,7 +39,7 @@ class ConstraintModel(Model):
         LOGGER.info(f"X_tilde computed in {time() - start:.3f} seconds")
 
         start = time()
-        constraint_indices = _init_sampling_smoothing(X_tilde, pairs, self.C)
+        constraint_indices = _init_constraint_sampling_smoothing(X_tilde, pairs, self.C)
         LOGGER.info(f"Initial sampling done in {time() - start:.3f} seconds")
 
         problem = self._build_subproblem(X_tilde, pairs, constraint_indices, None)
@@ -43,51 +50,52 @@ class ConstraintModel(Model):
 
         # infinite loop until we are done
         cg_start = time()
-        continue_loop = True
         cur_iter = 0
-        while continue_loop:
-            continue_loop = False
+        while True:
             cur_iter += 1
 
             start = time()
             problem.solve(self.solver)
             LOGGER.info(f"Subproblem solved in {time() - start:.3f} seconds")
 
-            if len(constraint_indices) != N:
-                variable_dict = problem.variablesDict()
-                # get parameters
-                beta_plus = [variable_dict[f"beta_plus_{p}"] for p in range(P)]
-                beta_minus = [variable_dict[f"beta_minus_{p}"] for p in range(P)]
-                beta = np.array(
-                    [beta_plus[p].varValue - beta_minus[p].varValue for p in range(P)]
-                )
+            if len(constraint_indices) == N:
+                break
 
-                # find constraints with negative reduced cost
-                reduced_costs = gs[np.array(constraints_to_check)] - np.dot(
-                    X_tilde[constraints_to_check], beta
-                )
-                violated_constraints = np.array(constraints_to_check)[
-                    reduced_costs > self.tol
-                ]
+            variable_dict = problem.variablesDict()
+            # get parameters
+            beta_plus = [variable_dict[f"beta_plus_{p}"] for p in range(P)]
+            beta_minus = [variable_dict[f"beta_minus_{p}"] for p in range(P)]
+            beta = np.array(
+                [beta_plus[p].varValue - beta_minus[p].varValue for p in range(P)]
+            )
 
-                # add violated constraints to the subproblem
-                if len(violated_constraints) > 0:
-                    LOGGER.info(f"Adding {len(violated_constraints)} constraints")
-                    LOGGER.info(f"Most violated constraint: {np.max(reduced_costs)}")
-                    problem = self._add_constraints_to_subproblem(
-                        X_tilde,
-                        pairs,
-                        problem,
-                        violated_constraints,
-                        beta_plus,
-                        beta_minus,
-                    )
+            # find constraints with negative reduced cost
+            reduced_costs = gs[np.array(constraints_to_check)] - np.dot(
+                X_tilde[constraints_to_check], beta
+            )
+            violated_constraints = np.array(constraints_to_check)[
+                reduced_costs > self.tol
+            ]
 
-                    continue_loop = True
-                    constraint_indices.extend(violated_constraints)
-                    constraints_to_check = list(
-                        set(constraints_to_check) - set(violated_constraints)
-                    )
+            # add violated constraints to the subproblem
+            if len(violated_constraints) == 0:
+                break
+
+            LOGGER.info(f"Adding {len(violated_constraints)} constraints")
+            LOGGER.info(f"Most violated constraint: {np.max(reduced_costs)}")
+            problem = self._add_constraints_to_subproblem(
+                X_tilde,
+                pairs,
+                problem,
+                violated_constraints,
+                beta_plus,
+                beta_minus,
+            )
+
+            constraint_indices.extend(violated_constraints)
+            constraints_to_check = list(
+                set(constraints_to_check) - set(violated_constraints)
+            )
 
         LOGGER.info(
             f"Finished constraint generation in {cur_iter} iterations, using {time() - cg_start:.3f} seconds"
@@ -101,7 +109,16 @@ class ConstraintModel(Model):
             [variable_dict[f"beta_minus_{p}"].varValue for p in range(P)]
         )
         self._weights = beta_plus - beta_minus
-        LOGGER.info(f"Overall objective: {problem.objective.value()}")  # type: ignore
+        LOGGER.info(f"Pulp objective: {problem.objective.value()}")  # type: ignore
+        LOGGER.info(
+            f"Overall objective: {compute_overall_objective(X, pairs, self._weights, self.C)}"
+        )
+        LOGGER.info(
+            f"Main objective: {compute_main_objective(X, pairs, self._weights, self.C)}"
+        )
+        LOGGER.info(
+            f"Regularisation objective: {compute_regularisation_objective(self._weights)}"
+        )
 
     def predict(self, X: ndarray) -> ndarray:
         return X @ self._weights
@@ -156,8 +173,8 @@ class ConstraintModel(Model):
 
         if warm_start is not None:
             for i in range(P):
-                beta_plus[i].varValue = max(0, warm_start[i])
-                beta_minus[i].varValue = max(0, -warm_start[i])
+                beta_plus[i].setInitialValue(max(0, warm_start[i]))
+                beta_minus[i].setInitialValue(max(0, -warm_start[i]))
 
         LOGGER.info(f"Subproblem built in {time() - start:.3f} seconds")
         return problem
@@ -188,30 +205,14 @@ class ConstraintModel(Model):
             sample_weights_to_add.append(pair.sample_weight)
 
         problem.setObjective(
-            problem.objective + lpDot(xis_to_add, sample_weights_to_add)
+            problem.objective + lpDot(xis_to_add, sample_weights_to_add) * self.C
         )
         LOGGER.info("Constraints added and objective updated")
 
         return problem
 
 
-def compute_X_tilde(X: ndarray, pairs: List[Pair]) -> ndarray:
-    """Compute the X_tilde matrix.
-
-    Args:
-        X (ndarray): The original feature matrix, shape (n_samples, n_features).
-        pairs (List[Pair]): The list of pairs, shape (n_pairs,).
-
-    Returns:
-        ndarray: The X_tilde matrix, shape (n_pairs, n_features).
-    """
-    X_tilde = []
-    for pair in pairs:
-        X_tilde.append(pair.sample_weight * (X[pair.j] - X[pair.i]))
-    return np.array(X_tilde)
-
-
-def _init_sampling_smoothing(
+def _init_constraint_sampling_smoothing(
     X_tilde: ndarray, pairs: List[Pair], C: float, is_restricted=True
 ) -> List[int]:
     """Initial sampling for constraint generation using smoothing.
@@ -232,12 +233,11 @@ def _init_sampling_smoothing(
         np.sum(np.abs(X_tilde), axis=0)
     )  # lambda (1/C) relative to norms
 
-    N0 = int(min(10 * P, N / 4))
+    N0 = int(min(10 * P, 5 * math.sqrt(N)))
     if N0 < 3:
-        LOGGER.info("Not enough samples to perform initial sampling, returning none")
+        LOGGER.warning("Not enough samples to perform initial sampling, returning none")
         return []
 
-    start_time = time()
     LOGGER.info("Finding initial solution using first-order method")
 
     tau_max = 0.1
@@ -295,10 +295,7 @@ def _init_sampling_smoothing(
 
     # ---Determine set of constraints
     beta_averaged *= N0 / float(N)
-    ones_N = np.ones(N)
 
-    g = np.array([pair.gap for pair in pairs])
-    s = np.array([pair.sample_weight for pair in pairs])
     gs = np.array([pair.gap * pair.sample_weight for pair in pairs])
 
     constraints = 1 * gs - (np.dot(X_tilde, beta_averaged))
@@ -306,8 +303,5 @@ def _init_sampling_smoothing(
 
     LOGGER.info("Finished initial sampling")
     LOGGER.info(f"Len dual smoothing: {len(idx_samples_smoothing)}")
-
-    time_smoothing = time() - start_time
-    LOGGER.info(f"Total time: {time_smoothing:.3f}")
 
     return list(idx_samples_smoothing)

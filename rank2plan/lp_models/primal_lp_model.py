@@ -75,7 +75,7 @@ class PrimalLpModel(Model):
         LOGGER.info("Finished solving")
         LOGGER.info(f"Overall objective: {prob.objective.value()}")  # type: ignore
         LOGGER.info(f"Main objective: {main_objective.value()}")
-        LOGGER.info(f"Regularisation object: {regularisation_objective.value()}")
+        LOGGER.info(f"Regularisation objective: {regularisation_objective.value()}")
 
         self._weights = np.array(
             [beta_plus[i].varValue - beta_minus[i].varValue for i in range(P)]  # type: ignore

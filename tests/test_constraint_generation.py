@@ -1,9 +1,11 @@
 from rank2plan import LpModel
 from rank2plan.metrics import kendall_tau
 import numpy as np
+import random
 
 
 def test_constraint_generation_simple(small_ranking_dataset, pulp_cbc):
+    random.seed(0)
     model = LpModel(
         pulp_cbc,
         use_column_generation=False,
@@ -25,6 +27,7 @@ def test_constraint_generation_simple(small_ranking_dataset, pulp_cbc):
 
 
 def test_constraint_generation_miconic(miconic_mock_dataset, pulp_cbc):
+    random.seed(0)
     model = LpModel(
         pulp_cbc,
         use_column_generation=False,

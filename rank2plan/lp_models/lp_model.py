@@ -1,6 +1,9 @@
 from rank2plan import Model, Pair
 from rank2plan.lp_models import PrimalLpModel
-from rank2plan.lp_models.constraint_generation import ConstraintModel
+from rank2plan.lp_models.constraint_column_generation import (
+    ConstraintModel,
+    ConstraintColumnModel,
+)
 from pulp import LpSolver
 from typing import List
 from numpy import ndarray
@@ -22,6 +25,8 @@ class LpModel(Model):
             self._underlying = PrimalLpModel(solver, C=C)
         elif use_constraint_generation and not use_column_generation:
             self._underlying = ConstraintModel(solver, C=C, tol=tol)
+        elif use_constraint_generation and use_column_generation:
+            self._underlying = ConstraintColumnModel(solver, C=C, tol=tol)
         else:
             raise NotImplementedError("Column generation not implemented yet")
 
