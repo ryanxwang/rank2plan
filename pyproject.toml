@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rank2plan"
-version = "0.1.1"
+version = "0.1.2"
 description = ""
 authors = ["Ryan Wang <ryanxiaowang2001@gmail.com>"]
 readme = "README.md"
@@ -8,8 +8,8 @@ readme = "README.md"
 [tool.poetry.dependencies]
 # 3.11 is probably actually supported, but I don't intend to test it for now
 python = "^3.8,<3.11"
-numpy = "1.22.0"
-pulp = "2.8.0"
+numpy = "^1.22.0"
+pulp = "^2.8.0"
 
 
 [tool.poetry.group.dev.dependencies]
