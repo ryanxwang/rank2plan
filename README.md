@@ -21,8 +21,8 @@ The PyPI release only supports `3.8 <= python <= 3.10` for now.
 
 ## Todo
 
-[ ] Support for sparse matrices and vectors
-[ ] Dynamic regularisation of some sort
+- [ ] Support for sparse matrices and vectors
+- [ ] Dynamic regularisation of some sort
 
 ## References
 
