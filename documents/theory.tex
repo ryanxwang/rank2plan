@@ -77,9 +77,9 @@ find a ranking function $r: \R^p \rightarrow \R$ such that $r(X_j) - r(X_i)
 function with zero bias, in which case the ranking problem can be formulated
 as the following linear program
 \begin{align*}
-    \Pc_\lambda := \min_{\slacks \in \R^m} & \sum_{(i,j) \in P} s_{i, j} \slack_{i,j} + \lambda \sum_{i = 1}^p \weight^+_i + \lambda \sum_{i=1}^p \weight^-_i                                 \\
-    \text{s.t.}                            & \weights^+ X_j^T - \weights^- X_j^T - \weights^+ X_i^T + \weights^- X_i^T \ge g_{i,j} - \slack_{i,j} \ \ (i, j) \in P \numberthis \label{eqn:lp} \\
-                                           & \slacks \ge 0, \weights^+ \ge 0, \weights^- \ge 0
+    \Pc_\lambda := \min_{\slacks \in \R^m,\weights^+ \in \R^p, \weights^- \in \R^p} & \sum_{(i,j) \in P} s_{i, j} \slack_{i,j} + \lambda \sum_{i = 1}^p \weight^+_i + \lambda \sum_{i=1}^p \weight^-_i                                 \\
+    \text{s.t.}                                                                     & \weights^+ X_j^T - \weights^- X_j^T - \weights^+ X_i^T + \weights^- X_i^T \ge g_{i,j} - \slack_{i,j} \ \ (i, j) \in P \numberthis \label{eqn:lp} \\
+                                                                                    & \slacks \ge 0, \weights^+ \ge 0, \weights^- \ge 0
 \end{align*}
 where $m = |P|$ and $r$ is given by $r(\bm{x}) = \weights \bm{x}^T$ where $\weights =
     \weights^+ - \weights^-$.
