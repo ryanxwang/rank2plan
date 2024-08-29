@@ -26,10 +26,19 @@ class ConstraintModel(Model):
     (Dedieu et al, 2022).
     """
 
-    def __init__(self, solver: LpSolver, C=1.0, tol=1e-4) -> None:
+    def __init__(
+        self,
+        solver: LpSolver,
+        C: float,
+        tol: float,
+        dynamic_regularisation_strength: Optional[float],
+    ) -> None:
+        """Don't use this directly, use LpModel instead."""
         self.solver = solver
         self.C = C
         self.tol = tol
+        self.dynamically_regularise = dynamic_regularisation_strength is not None
+        self.omega = dynamic_regularisation_strength
         self._weights = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:
