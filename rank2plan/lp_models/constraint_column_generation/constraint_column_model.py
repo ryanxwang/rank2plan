@@ -26,7 +26,7 @@ class ConstraintColumnModel(Model):
         solver: LpSolver,
         C: float,
         tol: float,
-        dynamic_regularisation_strength: Optional[float],
+        dynamic_regularisation_target: Optional[float],
     ) -> None:
         """Don't use this directly, use LpModel instead."""
         if solver.mip == True:
@@ -34,8 +34,8 @@ class ConstraintColumnModel(Model):
         self.solver = solver
         self.C = C
         self.tol = tol
-        self.dynamically_regularise = dynamic_regularisation_strength is not None
-        self.omega = dynamic_regularisation_strength
+        self.dynamically_regularise = dynamic_regularisation_target is not None
+        self.omega = dynamic_regularisation_target
         self._weights = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:
@@ -201,7 +201,7 @@ class ConstraintColumnModel(Model):
             f"Overall objective: {compute_overall_objective(X, pairs, self._weights, self.C)}"
         )
         LOGGER.info(
-            f"Main objective: {compute_main_objective(X, pairs, self._weights, self.C)}"
+            f"Main objective: {compute_main_objective(X, pairs, self._weights)}"
         )
         LOGGER.info(
             f"Regularisation objective: {compute_regularisation_objective(self._weights)}"

@@ -63,11 +63,11 @@ class PrimalLpModel(Model):
             prob += h_values[pair.j] - h_values[pair.i] >= pair.gap - xi[-1]
             sample_weights.append(pair.sample_weight)
 
-        main_objective: LpAffineExpression = self.C * lpDot(xi, sample_weights)  # type: ignore
+        main_objective: LpAffineExpression = lpDot(xi, sample_weights)  # type: ignore
         regularisation_objective: LpAffineExpression = lpSum(beta_plus) + lpSum(
             beta_minus
         )
-        prob += main_objective + regularisation_objective
+        prob += main_objective * self.C + regularisation_objective
         LOGGER.info("Problem build, solving")
 
         prob.solve(self.solver)
