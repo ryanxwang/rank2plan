@@ -21,6 +21,6 @@ The PyPI release only supports `3.8 <= python <= 3.10` for now.
 
 ## References
 
-- A. Dedieu, R. Mazumder, and H. Wang. Solving l1-regularized svms and related
-linear programs: Revisiting the effectiveness of column and constraint
-generation. J. Mach. Learn. Res., 23:164:1–164:41, 2022. [[URL]](http://jmlr.org/papers/v23/19-104.html).
+- A. Dedieu, R. Mazumder, and H. Wang. Solving L1-regularized SVMs and Related
+Linear Programs: Revisiting the Effectiveness of Column and Constraint
+Generation. J. Mach. Learn. Res., 23:164:1–164:41, 2022. [[URL]](http://jmlr.org/papers/v23/19-104.html).
