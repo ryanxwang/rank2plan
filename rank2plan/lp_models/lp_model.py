@@ -4,6 +4,7 @@ from rank2plan.lp_models.constraint_column_generation import (
     ConstraintModel,
     ConstraintColumnModel,
 )
+from rank2plan.lp_models.regularisers import DynamicRegulariser, ConstantRegulariser
 from pulp import LpSolver
 from typing import List, Optional
 from numpy import ndarray
@@ -50,6 +51,10 @@ class LpModel(Model):
         """
         if C <= 0:
             raise ValueError(f"C ({C}) must be positive")
+        if dynamic_regularisation_target is not None:
+            regulariser = DynamicRegulariser(dynamic_regularisation_target)
+        else:
+            regulariser = ConstantRegulariser(C)
         if not use_column_generation and not use_constraint_generation:
             if dynamic_regularisation_target is not None:
                 raise ValueError(
@@ -57,19 +62,9 @@ class LpModel(Model):
                 )
             self._underlying = PrimalLpModel(solver, C=C)
         elif use_constraint_generation and not use_column_generation:
-            self._underlying = ConstraintModel(
-                solver,
-                C,
-                tol,
-                dynamic_regularisation_target,
-            )
+            self._underlying = ConstraintModel(solver, C, tol, regulariser)
         elif use_constraint_generation and use_column_generation:
-            self._underlying = ConstraintColumnModel(
-                solver,
-                C=C,
-                tol=tol,
-                dynamic_regularisation_target=dynamic_regularisation_target,
-            )
+            self._underlying = ConstraintColumnModel(solver, C, tol, regulariser)
         else:
             raise NotImplementedError("Column generation not implemented yet")
 
