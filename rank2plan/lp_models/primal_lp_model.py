@@ -50,17 +50,16 @@ class PrimalLpModel(Model):
             beta_minus.append(LpVariable(f"beta_minus_{p}", lowBound=0))
 
         LOGGER.info("Created variables, constructing h values")
-        h_values: List[LpAffineExpression] = [
-            lpDot(beta_plus, X[i]) - lpDot(beta_minus, X[i]) for i in range(N)
-        ]
         LOGGER.info(f"Constructing h values, building problem")
 
         xi: List[LpVariable] = []
         sample_weights: List[float] = []
         for pair_id, pair in enumerate(pairs):
+            h_value_i = lpDot(beta_plus, X[pair.i]) - lpDot(beta_minus, X[pair.i])
+            h_value_j = lpDot(beta_plus, X[pair.j]) - lpDot(beta_minus, X[pair.j])
             xi.append(LpVariable(f"xi_{pair_id}_{pair.i}_{pair.j}", lowBound=0))
             # this order of j and i makes lower scores better
-            prob += h_values[pair.j] - h_values[pair.i] >= pair.gap - xi[-1]
+            prob += h_value_j - h_value_i >= pair.gap - xi[-1]
             sample_weights.append(pair.sample_weight)
 
         main_objective: LpAffineExpression = lpDot(xi, sample_weights)  # type: ignore
