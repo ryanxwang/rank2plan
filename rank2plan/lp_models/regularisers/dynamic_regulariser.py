@@ -1,4 +1,4 @@
-from rank2plan.lp_models.regularisers import Regulariser
+from rank2plan.lp_models.regularisers.regulariser import Regulariser
 
 
 class DynamicRegulariser(Regulariser):
