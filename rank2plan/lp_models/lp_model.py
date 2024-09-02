@@ -58,26 +58,27 @@ class LpModel(Model):
         else:
             raise NotImplementedError("Column generation not implemented yet")
 
-    def tune_then_fit(
+    def tune(
         self,
-        X: ndarray,
+        X_train: ndarray,
         pairs_train: List[Pair],
+        X_val: ndarray,
         pairs_val: List[Pair],
         C_range=(0.001, 100),
         tuning_rounds=25,
-    ) -> None:
+    ) -> float:
         if tuning_rounds < 5:
             raise ValueError("tuning_rounds should be at least 5")
 
-        pairs_train = _filter_pairs(X, pairs_train)
-        pairs_val = _filter_pairs(X, pairs_val)
+        pairs_train = _filter_pairs(X_train, pairs_train)
+        pairs_val = _filter_pairs(X_val, pairs_val)
 
         # X_tilde_val = compute_X_tilde(X, pairs_val)
 
         def validation_score(weights: ndarray) -> float:
             # negative because we are minimising
             # return -compute_main_objective(X_tilde_val, pairs_val, weights)
-            scores = self._underlying.predict(X)
+            scores = self._underlying.predict(X_val)
             return kendall_tau(pairs_val, scores)
 
         def f(C: float):
@@ -93,7 +94,7 @@ class LpModel(Model):
             random_state=1,
         )
 
-        self._underlying.fit(X, pairs_train, save_state=True)
+        self._underlying.fit(X_train, pairs_train, save_state=True)
         initial_score = validation_score(self.weights())  # type: ignore
         optimiser.register(params={"C": self._underlying.C}, target=initial_score)
         optimiser.maximize(init_points=5, n_iter=tuning_rounds - 5)
@@ -103,11 +104,9 @@ class LpModel(Model):
         LOGGER.info(
             f"Refitting on complete data set with found best C: {best_C}, which gave the best score: {best_score}",
         )
-
-        pairs_all = pairs_train + pairs_val
         self._underlying.state = None
         self._underlying.C = best_C
-        self._underlying.fit(X, pairs_all)
+        return best_C
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:
         """Fit the model.
