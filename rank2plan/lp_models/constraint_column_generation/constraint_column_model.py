@@ -323,7 +323,7 @@ class ConstraintColumnModel(Model):
         X_tilde: ndarray,
         pairs: List[Pair],
         problem: LpProblem,
-        violated_constraints: List[int],
+        violated_constraints: ndarray,
         current_features: List[int],
         beta_plus: List[LpVariable],
         beta_minus: List[LpVariable],
