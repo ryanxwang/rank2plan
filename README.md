@@ -19,6 +19,10 @@ pip install rank2plan
 
 The PyPI release only supports `3.8 <= python <= 3.10` for now.
 
+## Examples
+
+See under `tests` for examples.
+
 ## Todo
 
 - [ ] Support for sparse matrices and vectors
