@@ -1,7 +1,6 @@
 from rank2plan import Model, Pair
 from rank2plan.lp_models import PrimalLpModel
 from rank2plan.lp_models.constraint_column_generation import (
-    ConstraintModel,
     ConstraintColumnModel,
 )
 from pulp import LpSolver
@@ -48,10 +47,10 @@ class LpModel(Model):
             raise ValueError(f"C ({C}) must be positive")
         if not use_column_generation and not use_constraint_generation:
             self._underlying = PrimalLpModel(solver, C=C)
-        elif use_constraint_generation and not use_column_generation:
-            self._underlying = ConstraintModel(solver, C, tol)
-        elif use_constraint_generation and use_column_generation:
-            self._underlying = ConstraintColumnModel(solver, C, tol)
+        elif use_constraint_generation:
+            self._underlying = ConstraintColumnModel(
+                solver, C, tol, no_feature_sampling=(not use_column_generation)
+            )
         else:
             raise NotImplementedError("Column generation not implemented yet")
 

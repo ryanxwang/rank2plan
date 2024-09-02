@@ -1,6 +1,7 @@
 from rank2plan import Model, Pair, LossType, PenalisationType
 from rank2plan.lp_models.constraint_column_generation.smoothing_hinge_loss import (
     loop_smoothing_hinge_loss_columns_samples_restricted,
+    loop_smoothing_hinge_loss_samples_restricted,
 )
 from rank2plan.lp_models.objective_values import (
     compute_main_objective,
@@ -21,13 +22,16 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ConstraintColumnModel(Model):
-    def __init__(self, solver: LpSolver, C: float, tol: float) -> None:
+    def __init__(
+        self, solver: LpSolver, C: float, tol: float, no_feature_sampling=False
+    ) -> None:
         """Don't use this directly, use LpModel instead."""
         if solver.mip == True:
             raise ValueError("solver must be configured for LP, use mip=False")
         self.solver = solver
         self.C = C
         self.tol = tol
+        self.no_feature_sampling = no_feature_sampling
         self._weights = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:
@@ -37,9 +41,15 @@ class ConstraintColumnModel(Model):
         LOGGER.info(f"Computed X_tilde in {time() - start:.2f}s")
 
         start = time()
-        constraint_indices, feature_indices = (
-            _init_constraint_column_sampling_smoothing(X_tilde, pairs, self.C)
-        )
+        if self.no_feature_sampling:
+            constraint_indices = _init_constraint_sampling_smoothing(
+                X_tilde, pairs, self.C
+            )
+            feature_indices = list(range(X_tilde.shape[1]))
+        else:
+            constraint_indices, feature_indices = (
+                _init_constraint_column_sampling_smoothing(X_tilde, pairs, self.C)
+            )
         LOGGER.info(
             f"Initial constraint and column sampling done in {time() - start:.3f} seconds"
         )
@@ -425,3 +435,98 @@ def _init_constraint_column_sampling_smoothing(
     LOGGER.info(f"Len dual smoothing: {len(index_samples_smoothing)}")
 
     return list(index_samples_smoothing), list(index_columns_smoothing)
+
+
+def _init_constraint_sampling_smoothing(
+    X_tilde: ndarray, pairs: List[Pair], C: float, is_restricted=True
+) -> List[int]:
+    """Initial sampling for constraint generation using smoothing.
+
+    Args:
+        X_tilde (ndarray): The X_tilde matrix, shape (n_pairs, n_features).
+        pairs (List[Pair]): The list of pairs, shape (n_pairs,).
+        C (float): The regularisation parameter.
+        is_restricted (bool, optional): Not sure yet :(. Defaults to True.
+
+    Returns:
+        List[int]: the initial set of constraints
+    """
+
+    pairs_np = np.array(pairs)
+    N, P = X_tilde.shape
+    rho = (1 / C) / np.max(
+        np.sum(np.abs(X_tilde), axis=0)
+    )  # lambda (1/C) relative to norms
+
+    N0 = int(min(10 * P, 5 * math.sqrt(N)))
+    if N0 < 3:
+        LOGGER.warning("Not enough samples to perform initial sampling, returning none")
+        return []
+
+    LOGGER.info("Finding initial solution using first-order method")
+
+    tau_max = 0.1
+    n_loop = 20
+    n_iter = 20
+
+    # result
+    old_beta_averaged = -np.ones(P)
+    beta_averaged = np.zeros(P)
+    delta_variance = 1e6
+
+    k = 0
+    while delta_variance > 5e-2 and k < int(N / N0):
+        k += 1
+        LOGGER.info(f"Sample number: {k}")
+        LOGGER.info(f"Difference variance: {delta_variance}")
+
+        subset = np.sort(random.sample(range(N), N0))
+        X_tilde_reduced = X_tilde[subset]
+        pairs_reduced = pairs_np[subset]
+
+        alpha_sample = rho * np.max(np.sum(np.abs(X_tilde_reduced), axis=0))
+
+        if is_restricted:
+            n_loop = 10
+            _, beta_sample = loop_smoothing_hinge_loss_samples_restricted(
+                LossType.Hinge,
+                PenalisationType.L1,
+                pairs_reduced,
+                X_tilde_reduced,
+                alpha_sample,
+                tau_max,
+                n_loop,
+                n_iter,
+            )
+        else:
+            raise NotImplementedError("Unrestricted sampling not implemented yet.")
+            # _, _, _, beta_sample, beta0_sample = loop_smoothing_hinge_loss(
+            #     LossType.Hinge,
+            #     PenalisationType.L1,
+            #     X,
+            #     pairs_reduced,
+            #     alpha_sample,
+            #     tau_max,
+            #     n_loop,
+            #     n_iter,
+            # )
+            # beta_sample = np.concatenate([beta_sample, np.array([beta0_sample])])
+
+        old_beta_averaged = np.copy(beta_averaged)
+        beta_averaged += np.array(beta_sample)
+        delta_variance = np.linalg.norm(
+            1.0 / max(1, k) * beta_averaged - 1.0 / max(1, k - 1) * old_beta_averaged
+        )
+
+    # ---Determine set of constraints
+    beta_averaged *= N0 / float(N)
+
+    gs = np.array([pair.gap * pair.sample_weight for pair in pairs])
+
+    constraints = 1 * gs - (np.dot(X_tilde, beta_averaged))
+    idx_samples_smoothing = np.arange(N)[constraints >= 0]
+
+    LOGGER.info("Finished initial sampling")
+    LOGGER.info(f"Len dual smoothing: {len(idx_samples_smoothing)}")
+
+    return list(idx_samples_smoothing)
