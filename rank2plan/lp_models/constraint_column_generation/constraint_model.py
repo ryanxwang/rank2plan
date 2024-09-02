@@ -8,7 +8,6 @@ from rank2plan.lp_models.objective_values import (
     compute_overall_objective,
     compute_regularisation_objective,
 )
-from rank2plan.lp_models.regularisers import Regulariser
 from pulp import LpSolver, LpProblem, LpMinimize, LpVariable, lpSum, lpDot
 import numpy as np
 from numpy import ndarray
@@ -27,14 +26,11 @@ class ConstraintModel(Model):
     (Dedieu et al, 2022).
     """
 
-    def __init__(
-        self, solver: LpSolver, C: float, tol: float, regulariser: Regulariser
-    ) -> None:
+    def __init__(self, solver: LpSolver, C: float, tol: float) -> None:
         """Don't use this directly, use LpModel instead."""
         self.solver = solver
         self.C = C
         self.tol = tol
-        self.regulariser = regulariser
         self._weights = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:

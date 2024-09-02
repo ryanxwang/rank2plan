@@ -7,7 +7,6 @@ from rank2plan.lp_models.objective_values import (
     compute_regularisation_objective,
     compute_overall_objective,
 )
-from rank2plan.lp_models.regularisers import Regulariser
 from rank2plan.lp_models.constraint_column_generation.utils import compute_X_tilde
 from pulp import LpSolver, LpProblem, LpMinimize, LpVariable, lpSum, lpDot, LpConstraint
 from typing import List, Optional, Tuple
@@ -22,16 +21,13 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ConstraintColumnModel(Model):
-    def __init__(
-        self, solver: LpSolver, C: float, tol: float, regulariser: Regulariser
-    ) -> None:
+    def __init__(self, solver: LpSolver, C: float, tol: float) -> None:
         """Don't use this directly, use LpModel instead."""
         if solver.mip == True:
             raise ValueError("solver must be configured for LP, use mip=False")
         self.solver = solver
         self.C = C
         self.tol = tol
-        self.regulariser = regulariser
         self._weights = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:

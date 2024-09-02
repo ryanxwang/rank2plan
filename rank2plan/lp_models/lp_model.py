@@ -4,11 +4,13 @@ from rank2plan.lp_models.constraint_column_generation import (
     ConstraintModel,
     ConstraintColumnModel,
 )
-from rank2plan.lp_models.regularisers import DynamicRegulariser, ConstantRegulariser
 from pulp import LpSolver
-from typing import List, Optional
+from typing import List
 from numpy import ndarray
 import numpy as np
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LpModel(Model):
@@ -19,7 +21,6 @@ class LpModel(Model):
         use_constraint_generation=False,
         C=1.0,
         tol=1e-4,
-        dynamic_regularisation_target: Optional[float] = None,
     ) -> None:
         """Create a new LP model.
 
@@ -38,33 +39,19 @@ class LpModel(Model):
             tol (float, optional): Tolerence value used in constraint or column
             generation for adding constraints and columns. Defaults to 1e-4.
 
-            dynamic_regularisation_target (Optional[float], optional): If
-            provided, will use dynamic regularisation by starting with the
-            provided C value and adjusting till the ratio of the average slack
-            value and the L1 norm of weights is close to this value . Defaults
-            to None.
-
         Raises:
-            ValueError: If C is not positive
-            NotImplementedError: For now, using only column generation without
-            constraint generation is not implemented
+            ValueError: If C is not positive NotImplementedError: For now, using
+            only column generation without constraint generation is not
+            implemented
         """
         if C <= 0:
             raise ValueError(f"C ({C}) must be positive")
-        if dynamic_regularisation_target is not None:
-            regulariser = DynamicRegulariser(dynamic_regularisation_target)
-        else:
-            regulariser = ConstantRegulariser(C)
         if not use_column_generation and not use_constraint_generation:
-            if dynamic_regularisation_target is not None:
-                raise ValueError(
-                    "Dynamic regularisation is only available when using column or constraint generation"
-                )
             self._underlying = PrimalLpModel(solver, C=C)
         elif use_constraint_generation and not use_column_generation:
-            self._underlying = ConstraintModel(solver, C, tol, regulariser)
+            self._underlying = ConstraintModel(solver, C, tol)
         elif use_constraint_generation and use_column_generation:
-            self._underlying = ConstraintColumnModel(solver, C, tol, regulariser)
+            self._underlying = ConstraintColumnModel(solver, C, tol)
         else:
             raise NotImplementedError("Column generation not implemented yet")
 
