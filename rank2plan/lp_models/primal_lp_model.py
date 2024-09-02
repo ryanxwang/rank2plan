@@ -12,9 +12,21 @@ from pulp import (
     LpAffineExpression,
     LpSolver,
 )
+from dataclasses import dataclass
 import logging
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class FitState:
+    """A very primitive state, instead of saving the built problem, we just
+    rebuild each time, since PrimalLpModel is mainly for debugging and testing
+    anyway.
+    """
+
+    X: ndarray
+    pairs: List[Pair]
 
 
 class PrimalLpModel(Model):
@@ -35,9 +47,10 @@ class PrimalLpModel(Model):
         """
         self.solver = solver
         self.C = C
+        self.state: Optional[FitState] = None
         self._weights = None
 
-    def fit(self, X: ndarray, pairs: List[Pair]) -> None:
+    def fit(self, X: ndarray, pairs: List[Pair], save_state=False) -> None:
         N = X.shape[0]
         P = X.shape[1]
 
@@ -79,6 +92,14 @@ class PrimalLpModel(Model):
         self._weights = np.array(
             [beta_plus[i].varValue - beta_minus[i].varValue for i in range(P)]  # type: ignore
         )
+        if save_state:
+            self.state = FitState(X, pairs)
+
+    def refit_with_C_value(self, C: float, save_state=False) -> None:
+        assert self.state is not None
+        LOGGER.info(f"Refitting with C value changed from {self.C} to {C}")
+        self.C = C
+        self.fit(self.state.X, self.state.pairs, save_state=save_state)
 
     def predict(self, X: ndarray) -> ndarray:
         return X @ self._weights

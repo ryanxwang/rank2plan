@@ -65,9 +65,6 @@ class LpModel(Model):
         C_range=(0.001, 100),
         tuning_rounds=25,
     ) -> None:
-        assert (
-            type(self._underlying) == ConstraintColumnModel
-        ), "Only implemented for ConstraintColumnModel"
         if tuning_rounds < 5:
             raise ValueError("tuning_rounds should be at least 5")
 
@@ -80,7 +77,7 @@ class LpModel(Model):
             # negative because we are minimising
             return -compute_main_objective(X_tilde_val, pairs_val, weights)
 
-        def f(C):
+        def f(C: float):
             assert type(self._underlying) == ConstraintColumnModel
             self._underlying.refit_with_C_value(C, save_state=True)
             return validation_score(self.weights())  # type: ignore

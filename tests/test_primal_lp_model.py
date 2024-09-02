@@ -38,3 +38,6 @@ def test_primal_lp_miconic(miconic_mock_dataset, pulp_cbc):
     model.fit(X, pairs)
     train_scores = model.predict(X)
     assert kendall_tau(pairs, train_scores) > 0.4
+
+
+# We don't test tune_then_fit here to avoid tests taking too long
