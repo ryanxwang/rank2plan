@@ -17,8 +17,20 @@ from time import time
 import logging
 import random
 import math
+from dataclasses import dataclass
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class FitState:
+    N: int
+    P: int
+    X_tilde: ndarray
+    pairs: List[Pair]
+    problem: LpProblem
+    constraint_indices: List[int]
+    feature_indices: List[int]
 
 
 class ConstraintColumnModel(Model):
@@ -32,10 +44,10 @@ class ConstraintColumnModel(Model):
         self.C = C
         self.tol = tol
         self.no_feature_sampling = no_feature_sampling
-        self._weights = None
+        self.state: Optional[FitState] = None
+        self._weights: Optional[ndarray] = None
 
     def fit(self, X: ndarray, pairs: List[Pair]) -> None:
-
         start = time()
         X_tilde = compute_X_tilde(X, pairs)
         LOGGER.info(f"Computed X_tilde in {time() - start:.2f}s")
@@ -59,47 +71,73 @@ class ConstraintColumnModel(Model):
         )
 
         N, P = X_tilde.shape
-        features_to_check = list(set(range(P)) - set(feature_indices))
-        constraint_to_check = list(set(range(N)) - set(constraint_indices))
-        gs = np.array([pair.gap * pair.sample_weight for pair in pairs])
+        self.state = FitState(
+            N, P, X_tilde, pairs, problem, constraint_indices, feature_indices
+        )
+        self._fit()
+
+    def refit_with_C_value(self, C: float) -> None:
+        self.C = C
+        # update the saved problem and then call _fit again
+        raise NotImplementedError(
+            "Refitting with a different C value is not implemented"
+        )
+
+    def predict(self, X: ndarray) -> ndarray:
+        return X @ self._weights
+
+    def weights(self) -> Optional[ndarray]:
+        return self._weights
+
+    def _fit(self) -> None:
+        assert self.state is not None
+        N, P = self.state.N, self.state.P
+        features_to_check = list(set(range(P)) - set(self.state.feature_indices))
+        constraint_to_check = list(set(range(N)) - set(self.state.constraint_indices))
+        gs = np.array([pair.gap * pair.sample_weight for pair in self.state.pairs])
 
         cur_iter = 0
         while True:
             cur_iter += 1
 
-            # LOGGER.info(problem)
             start = time()
-            problem.solve(self.solver)
+            self.state.problem.solve(self.solver)
             LOGGER.info(f"Subproblem solved in {time() - start:.3f} seconds")
-            LOGGER.info(f"Current objective: {problem.objective.value()}")  # type: ignore
+            LOGGER.info(f"Current objective: {self.state.problem.objective.value()}")  # type: ignore
 
-            if len(feature_indices) == P and len(constraint_indices) == N:
+            if (
+                len(self.state.feature_indices) == P
+                and len(self.state.constraint_indices) == N
+            ):
                 LOGGER.info("Finishing as all features and constraints are used")
                 break
 
             constraints: List[LpConstraint] = [
-                problem.constraints[f"constraint_{i}"] for i in constraint_indices
+                self.state.problem.constraints[f"constraint_{i}"]
+                for i in self.state.constraint_indices
             ]
             dual_values = np.array([constraint.pi for constraint in constraints])
 
-            variable_dict = problem.variablesDict()
+            variable_dict = self.state.problem.variablesDict()
             beta_plus = [
                 variable_dict[f"beta_plus_{feature_id}"]
-                for feature_id in feature_indices
+                for feature_id in self.state.feature_indices
             ]
             beta_minus = [
                 variable_dict[f"beta_minus_{feature_id}"]
-                for feature_id in feature_indices
+                for feature_id in self.state.feature_indices
             ]
             beta = np.array(
                 [
                     beta_plus[i].varValue - beta_minus[i].varValue
-                    for i in range(len(feature_indices))
+                    for i in range(len(self.state.feature_indices))
                 ]
             )
 
             # Reduced costs for features
-            X_tilde_reduced = X_tilde[constraint_indices, :][:, features_to_check]
+            X_tilde_reduced = self.state.X_tilde[self.state.constraint_indices, :][
+                :, features_to_check
+            ]
             reduced_costs_features = (1 / self.C) * np.ones(
                 len(features_to_check)
             ) - np.abs(np.dot(X_tilde_reduced.T, dual_values))
@@ -111,7 +149,9 @@ class ConstraintColumnModel(Model):
                 indices = np.argsort(reduced_costs_features)[:400]
                 violated_features = np.array(features_to_check)[indices]
 
-            X_tilde_reduced = X_tilde[:, feature_indices][constraint_to_check, :]
+            X_tilde_reduced = self.state.X_tilde[:, self.state.feature_indices][
+                constraint_to_check, :
+            ]
             reduced_costs_constraints = gs[constraint_to_check] - np.dot(
                 X_tilde_reduced, beta
             )
@@ -122,26 +162,25 @@ class ConstraintColumnModel(Model):
             if len(violated_constraints) == 0 and len(violated_features) == 0:
                 LOGGER.info("Finishing as no violated constraints or features")
                 break
-            # if len(violated_constraints) == 0:
-            #     LOGGER.info("Finishing as no violated constraints")
-            #     break
 
             if len(violated_features) > 0:
                 LOGGER.info(f"Adding {len(violated_features)} features")
                 LOGGER.info(
                     f"Most negative feature reduced cost: {np.min(reduced_costs_features)}"
                 )
-                problem = self._add_features_to_subproblem(
-                    X_tilde,
-                    pairs,
-                    problem,
+                self.state.problem = self._add_features_to_subproblem(
+                    self.state.X_tilde,
+                    self.state.pairs,
+                    self.state.problem,
                     violated_features,
-                    constraint_indices,
+                    self.state.constraint_indices,
                 )
-                feature_indices += list(violated_features)
-                features_to_check = list(set(range(P)) - set(feature_indices))
+                self.state.feature_indices += list(violated_features)
+                features_to_check = list(
+                    set(range(P)) - set(self.state.feature_indices)
+                )
 
-                variable_dict = problem.variablesDict()
+                variable_dict = self.state.problem.variablesDict()
                 beta_plus += [
                     variable_dict[f"beta_plus_{feature_id}"]
                     for feature_id in violated_features
@@ -156,26 +195,26 @@ class ConstraintColumnModel(Model):
                 LOGGER.info(
                     f"Most violated constraint: {np.max(reduced_costs_constraints)}"
                 )
-                problem = self._add_constraints_to_subproblem(
-                    X_tilde,
-                    pairs,
-                    problem,
+                self.state.problem = self._add_constraints_to_subproblem(
+                    self.state.X_tilde,
+                    self.state.pairs,
+                    self.state.problem,
                     violated_constraints,
-                    feature_indices,
+                    self.state.feature_indices,
                     beta_plus,
                     beta_minus,
                 )
-                constraint_indices.extend(violated_constraints)
+                self.state.constraint_indices.extend(violated_constraints)
                 constraint_to_check = list(
                     set(constraint_to_check) - set(violated_constraints)
                 )
 
-        variable_dict = problem.variablesDict()
+        variable_dict = self.state.problem.variablesDict()
         beta_plus = np.array(
             [
                 (
                     variable_dict[f"beta_plus_{feature_id}"].varValue
-                    if feature_id in feature_indices
+                    if feature_id in self.state.feature_indices
                     else 0
                 )
                 for feature_id in range(P)
@@ -185,7 +224,7 @@ class ConstraintColumnModel(Model):
             [
                 (
                     variable_dict[f"beta_minus_{feature_id}"].varValue
-                    if feature_id in feature_indices
+                    if feature_id in self.state.feature_indices
                     else 0
                 )
                 for feature_id in range(P)
@@ -196,24 +235,18 @@ class ConstraintColumnModel(Model):
             f"Finished constraint and column generation in {cur_iter} iterations, using {time() - start:.3f} seconds"
         )
         LOGGER.info(
-            f"Final support size {len(feature_indices)}, of which {len(np.where(self._weights != 0)[0])} are non-zero"
+            f"Final support size {len(self.state.feature_indices)}, of which {len(np.where(self._weights != 0)[0])} are non-zero"
         )
-        LOGGER.info(f"Pulp objective: {problem.objective.value()}")  # type: ignore
+        LOGGER.info(f"Pulp objective: {self.state.problem.objective.value()}")  # type: ignore
         LOGGER.info(
-            f"Overall objective: {compute_overall_objective(X, pairs, self._weights, self.C)}"
+            f"Overall objective: {compute_overall_objective(self.state.X_tilde, self.state.pairs, self._weights, self.C)}"
         )
         LOGGER.info(
-            f"Main objective: {compute_main_objective(X, pairs, self._weights)}"
+            f"Main objective: {compute_main_objective(self.state.X_tilde, self.state.pairs, self._weights)}"
         )
         LOGGER.info(
             f"Regularisation objective: {compute_regularisation_objective(self._weights)}"
         )
-
-    def predict(self, X: ndarray) -> ndarray:
-        return X @ self._weights
-
-    def weights(self) -> Optional[ndarray]:
-        return self._weights
 
     def _build_subproblem(
         self,
