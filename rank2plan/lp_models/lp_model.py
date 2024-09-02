@@ -4,6 +4,7 @@ from rank2plan.lp_models.constraint_column_generation import (
     ConstraintColumnModel,
 )
 from rank2plan.lp_models.objective_values import compute_main_objective
+from rank2plan.metrics import kendall_tau
 from rank2plan.lp_models.constraint_column_generation.utils import compute_X_tilde
 from pulp import LpSolver
 from typing import List
@@ -71,21 +72,24 @@ class LpModel(Model):
         pairs_train = _filter_pairs(X, pairs_train)
         pairs_val = _filter_pairs(X, pairs_val)
 
-        X_tilde_val = compute_X_tilde(X, pairs_val)
+        # X_tilde_val = compute_X_tilde(X, pairs_val)
 
         def validation_score(weights: ndarray) -> float:
             # negative because we are minimising
-            return -compute_main_objective(X_tilde_val, pairs_val, weights)
+            # return -compute_main_objective(X_tilde_val, pairs_val, weights)
+            scores = self._underlying.predict(X)
+            return kendall_tau(pairs_val, scores)
 
         def f(C: float):
-            assert type(self._underlying) == ConstraintColumnModel
             self._underlying.refit_with_C_value(C, save_state=True)
-            return validation_score(self.weights())  # type: ignore
+            val_score = validation_score(self.weights())  # type: ignore
+            LOGGER.info(f"Validation score for C={C}: {val_score}")
+            return val_score
 
         optimiser = BayesianOptimization(
             f=f,
             pbounds={"C": C_range},
-            verbose=2,
+            verbose=0,
             random_state=1,
         )
 
