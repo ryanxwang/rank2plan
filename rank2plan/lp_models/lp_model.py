@@ -72,6 +72,7 @@ class LpModel(Model):
 
         pairs_train = _filter_pairs(X_train, pairs_train)
         pairs_val = _filter_pairs(X_val, pairs_val)
+        X_tilde_val = compute_X_tilde(X_val, pairs_val)
 
         def log_scale(x):
             return np.log10(x)
@@ -80,8 +81,9 @@ class LpModel(Model):
             return 10**x
 
         def validation_score(weights: ndarray) -> float:
-            scores = self._underlying.predict(X_val)
-            return kendall_tau(pairs_val, scores)
+            return -compute_main_objective(X_tilde_val, pairs_val, weights)
+            # scores = self._underlying.predict(X_val)
+            # return kendall_tau(pairs_val, scores)
 
         def f(log_C: float):
             C = exp_scale(log_C)
