@@ -77,11 +77,11 @@ class ConstraintColumnModel(Model):
         self._fit()
 
     def refit_with_C_value(self, C: float) -> None:
+        assert self.state is not None
+        LOGGER.info(f"Refitting with C value changed from {self.C} to {C}")
         self.C = C
-        # update the saved problem and then call _fit again
-        raise NotImplementedError(
-            "Refitting with a different C value is not implemented"
-        )
+        self.state.problem = self._rebuild_subproblem_objective(self.state.problem)
+        self._fit()
 
     def predict(self, X: ndarray) -> ndarray:
         return X @ self._weights
@@ -113,18 +113,18 @@ class ConstraintColumnModel(Model):
                 break
 
             constraints: List[LpConstraint] = [
-                self.state.problem.constraints[f"constraint_{i}"]
+                self.state.problem.constraints[_constraint_name(i)]
                 for i in self.state.constraint_indices
             ]
             dual_values = np.array([constraint.pi for constraint in constraints])
 
             variable_dict = self.state.problem.variablesDict()
             beta_plus = [
-                variable_dict[f"beta_plus_{feature_id}"]
+                variable_dict[_beta_plus_name(feature_id)]
                 for feature_id in self.state.feature_indices
             ]
             beta_minus = [
-                variable_dict[f"beta_minus_{feature_id}"]
+                variable_dict[_beta_minus_name(feature_id)]
                 for feature_id in self.state.feature_indices
             ]
             beta = np.array(
@@ -182,11 +182,11 @@ class ConstraintColumnModel(Model):
 
                 variable_dict = self.state.problem.variablesDict()
                 beta_plus += [
-                    variable_dict[f"beta_plus_{feature_id}"]
+                    variable_dict[_beta_plus_name(feature_id)]
                     for feature_id in violated_features
                 ]
                 beta_minus += [
-                    variable_dict[f"beta_minus_{feature_id}"]
+                    variable_dict[_beta_minus_name(feature_id)]
                     for feature_id in violated_features
                 ]
 
@@ -213,7 +213,7 @@ class ConstraintColumnModel(Model):
         beta_plus = np.array(
             [
                 (
-                    variable_dict[f"beta_plus_{feature_id}"].varValue
+                    variable_dict[_beta_plus_name(feature_id)].varValue
                     if feature_id in self.state.feature_indices
                     else 0
                 )
@@ -223,7 +223,7 @@ class ConstraintColumnModel(Model):
         beta_minus = np.array(
             [
                 (
-                    variable_dict[f"beta_minus_{feature_id}"].varValue
+                    variable_dict[_beta_minus_name(feature_id)].varValue
                     if feature_id in self.state.feature_indices
                     else 0
                 )
@@ -272,7 +272,7 @@ class ConstraintColumnModel(Model):
         # Hinge loss
         xi = [
             LpVariable(
-                f"xi_{constraint_id}_{pairs[constraint_id].i}_{pairs[constraint_id].j}",
+                _xi_name(constraint_id, pairs[constraint_id].i, pairs[constraint_id].j),
                 lowBound=0,
             )
             for constraint_id in constraint_indices
@@ -280,11 +280,11 @@ class ConstraintColumnModel(Model):
 
         # Beta
         beta_plus = [
-            LpVariable(f"beta_plus_{feature_id}", lowBound=0)
+            LpVariable(_beta_plus_name(feature_id), lowBound=0)
             for feature_id in feature_indices
         ]
         beta_minus = [
-            LpVariable(f"beta_minus_{feature_id}", lowBound=0)
+            LpVariable(_beta_minus_name(feature_id), lowBound=0)
             for feature_id in feature_indices
         ]
 
@@ -326,22 +326,24 @@ class ConstraintColumnModel(Model):
         added_beta_minus = []
 
         for feature_id in violated_features:
-            added_beta_plus.append(LpVariable(f"beta_plus_{feature_id}", lowBound=0))
-            added_beta_minus.append(LpVariable(f"beta_minus_{feature_id}", lowBound=0))
+            added_beta_plus.append(LpVariable(_beta_plus_name(feature_id), lowBound=0))
+            added_beta_minus.append(
+                LpVariable(_beta_minus_name(feature_id), lowBound=0)
+            )
 
         X_tilde_reduced = X_tilde[:, violated_features]
         problem.addVariables(added_beta_plus)
         problem.addVariables(added_beta_minus)
         for constraint_id in current_constraints:
             old_constraint: LpConstraint = problem.constraints[
-                f"constraint_{constraint_id}"
+                _constraint_name(constraint_id)
             ]
             updated_constraint = (
                 old_constraint
                 + lpDot(X_tilde_reduced[constraint_id], added_beta_plus)
                 - lpDot(X_tilde_reduced[constraint_id], added_beta_minus)
             )
-            problem.constraints[f"constraint_{constraint_id}"] = updated_constraint
+            problem.constraints[_constraint_name(constraint_id)] = updated_constraint
             problem.modifiedConstraints.append(updated_constraint)
 
         problem.setObjective(
@@ -387,6 +389,53 @@ class ConstraintColumnModel(Model):
         LOGGER.info("Constraints added and objective updated")
 
         return problem
+
+    def _rebuild_subproblem_objective(self, problem: LpProblem) -> LpProblem:
+        assert self.state is not None
+        variables_dict = problem.variablesDict()
+        beta_plus = [
+            variables_dict[_beta_plus_name(feature_id)]
+            for feature_id in self.state.feature_indices
+        ]
+        beta_minus = [
+            variables_dict[_beta_minus_name(feature_id)]
+            for feature_id in self.state.feature_indices
+        ]
+        xis = [
+            variables_dict[
+                _xi_name(
+                    constraint_id,
+                    self.state.pairs[constraint_id].i,
+                    self.state.pairs[constraint_id].j,
+                )
+            ]
+            for constraint_id in self.state.constraint_indices
+        ]
+        sample_weights = [
+            self.state.pairs[constraint_id].sample_weight
+            for constraint_id in self.state.constraint_indices
+        ]
+        problem.setObjective(
+            self.C * lpDot(xis, sample_weights) + lpSum(beta_plus) + lpSum(beta_minus)
+        )
+        LOGGER.info("Rebuilt subproblem objective")
+        return problem
+
+
+def _beta_plus_name(feature_id: int) -> str:
+    return f"beta_plus_{feature_id}"
+
+
+def _beta_minus_name(feature_id: int) -> str:
+    return f"beta_minus_{feature_id}"
+
+
+def _xi_name(constraint_id: int, i: int, j: int) -> str:
+    return f"xi_{constraint_id}_{i}_{j}"
+
+
+def _constraint_name(constraint_id: int) -> str:
+    return f"constraint_{constraint_id}"
 
 
 def _init_constraint_column_sampling_smoothing(
