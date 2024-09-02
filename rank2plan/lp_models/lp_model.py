@@ -1,4 +1,4 @@
-from rank2plan import Model, Pair
+from rank2plan import Model, Pair, TuningMetric
 from rank2plan.lp_models import PrimalLpModel
 from rank2plan.lp_models.constraint_column_generation import (
     ConstraintColumnModel,
@@ -64,6 +64,7 @@ class LpModel(Model):
         pairs_train: List[Pair],
         X_val: ndarray,
         pairs_val: List[Pair],
+        metric: TuningMetric = TuningMetric.LpMainObjective,
         C_range=(0.001, 100),
         tuning_rounds=25,
     ) -> float:
@@ -81,9 +82,14 @@ class LpModel(Model):
             return 10**x
 
         def validation_score(weights: ndarray) -> float:
-            return -compute_main_objective(X_tilde_val, pairs_val, weights)
-            # scores = self._underlying.predict(X_val)
-            # return kendall_tau(pairs_val, scores)
+            if metric == TuningMetric.LpMainObjective:
+                # negative because we are maximising
+                return -compute_main_objective(X_tilde_val, pairs_val, weights)
+            elif metric == TuningMetric.KendallTau:
+                scores = self._underlying.predict(X_val)
+                return kendall_tau(pairs_val, scores)
+            else:
+                raise ValueError(f"Unknown tuning metric {metric}")
 
         def f(log_C: float):
             C = exp_scale(log_C)

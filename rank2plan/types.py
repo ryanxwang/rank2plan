@@ -17,3 +17,9 @@ class LossType(Enum):
 class PenalisationType(Enum):
     L1 = auto()
     L2 = auto()
+
+
+class TuningMetric(Enum):
+    KendallTau = auto()
+    # See documents/theory.pdf for what the LpMainObjective is
+    LpMainObjective = auto()
