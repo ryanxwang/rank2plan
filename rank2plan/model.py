@@ -11,6 +11,7 @@ class Model(ABC):
 
         Args:
             X (ndarray): The data matrix, shape (n_samples, n_features).
+
             pairs (List[Pair]): The list of ranking pairs, shape (n_pairs,).
         """
         pass

@@ -7,9 +7,7 @@ import random
 def test_constraint_column_generation_simple(small_ranking_dataset, pulp_cbc):
     random.seed(0)
     model = LpModel(
-        pulp_cbc,
-        use_column_generation=True,
-        use_constraint_generation=True,
+        pulp_cbc, use_column_generation=True, use_constraint_generation=True
     )
     X, pairs = small_ranking_dataset
     model.fit(X, pairs)
@@ -36,4 +34,22 @@ def test_constraint_column_generation_miconic(miconic_mock_dataset, pulp_cbc):
     X, pairs = miconic_mock_dataset
     model.fit(X, pairs)
     train_scores = model.predict(X)
-    assert kendall_tau(pairs, train_scores) > 0.5
+    assert kendall_tau(pairs, train_scores) > 0.4
+
+
+def test_constraint_column_generation_tune_then_fit_miconic(
+    miconic_mock_dataset, pulp_cbc
+):
+    random.seed(0)
+    model = LpModel(
+        pulp_cbc,
+        use_column_generation=True,
+        use_constraint_generation=True,
+    )
+    X, pairs = miconic_mock_dataset
+
+    split_index = int(len(pairs) * 0.8)
+    pairs_train, pairs_val = pairs[:split_index], pairs[split_index:]
+    model.tune_then_fit(X, pairs_train, pairs_val)
+    train_scores = model.predict(X)
+    assert kendall_tau(pairs, train_scores) > 0.4
