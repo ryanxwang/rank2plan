@@ -47,7 +47,7 @@ class ConstraintColumnModel(Model):
         self.state: Optional[FitState] = None
         self._weights: Optional[ndarray] = None
 
-    def fit(self, X: ndarray, pairs: List[Pair]) -> None:
+    def fit(self, X: ndarray, pairs: List[Pair], save_state=False) -> None:
         start = time()
         X_tilde = compute_X_tilde(X, pairs)
         LOGGER.info(f"Computed X_tilde in {time() - start:.2f}s")
@@ -75,13 +75,17 @@ class ConstraintColumnModel(Model):
             N, P, X_tilde, pairs, problem, constraint_indices, feature_indices
         )
         self._fit()
+        if not save_state:
+            self.state = None
 
-    def refit_with_C_value(self, C: float) -> None:
+    def refit_with_C_value(self, C: float, save_state=False) -> None:
         assert self.state is not None
         LOGGER.info(f"Refitting with C value changed from {self.C} to {C}")
         self.C = C
         self.state.problem = self._rebuild_subproblem_objective(self.state.problem)
         self._fit()
+        if not save_state:
+            self.state = None
 
     def predict(self, X: ndarray) -> ndarray:
         return X @ self._weights

@@ -19,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
 
 class PrimalLpModel(Model):
     """The primal LP model for RankSVM. Based on equation (5) of (Dedieu et al,
-    2022).
+    2022). This should mainly be used for debugging and testing purposes.
     """
 
     def __init__(

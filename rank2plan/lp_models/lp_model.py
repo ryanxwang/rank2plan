@@ -3,11 +3,14 @@ from rank2plan.lp_models import PrimalLpModel
 from rank2plan.lp_models.constraint_column_generation import (
     ConstraintColumnModel,
 )
+from rank2plan.lp_models.objective_values import compute_main_objective
+from rank2plan.lp_models.constraint_column_generation.utils import compute_X_tilde
 from pulp import LpSolver
 from typing import List
 from numpy import ndarray
 import numpy as np
 import logging
+from bayes_opt import BayesianOptimization
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +57,65 @@ class LpModel(Model):
         else:
             raise NotImplementedError("Column generation not implemented yet")
 
-    def fit(self, X, pairs):
+    def tune_then_fit(
+        self,
+        X: ndarray,
+        pairs_train: List[Pair],
+        pairs_val: List[Pair],
+        C_range=(0.001, 100),
+        tuning_rounds=25,
+    ) -> None:
+        assert (
+            type(self._underlying) == ConstraintColumnModel
+        ), "Only implemented for ConstraintColumnModel"
+        if tuning_rounds < 5:
+            raise ValueError("tuning_rounds should be at least 5")
+
+        pairs_train = _filter_pairs(X, pairs_train)
+        pairs_val = _filter_pairs(X, pairs_val)
+
+        X_tilde_val = compute_X_tilde(X, pairs_val)
+
+        def validation_score(weights: ndarray) -> float:
+            # negative because we are minimising
+            return -compute_main_objective(X_tilde_val, pairs_val, weights)
+
+        def f(C):
+            assert type(self._underlying) == ConstraintColumnModel
+            self._underlying.refit_with_C_value(C, save_state=True)
+            return validation_score(self.weights())  # type: ignore
+
+        optimiser = BayesianOptimization(
+            f=f,
+            pbounds={"C": C_range},
+            verbose=2,
+            random_state=1,
+        )
+
+        self._underlying.fit(X, pairs_train, save_state=True)
+        initial_score = validation_score(self.weights())  # type: ignore
+        optimiser.register(params={"C": self._underlying.C}, target=initial_score)
+        optimiser.maximize(init_points=5, n_iter=tuning_rounds - 5)
+
+        best_C = optimiser.max["params"]["C"]  # type: ignore
+        best_score = -optimiser.max["target"]  # type: ignore
+        LOGGER.info(
+            f"Refitting on complete data set with found best C: {best_C}, which gave the best score: {best_score}",
+        )
+
+        pairs_all = pairs_train + pairs_val
+        self._underlying.state = None
+        self._underlying.C = best_C
+        self._underlying.fit(X, pairs_all)
+
+    def fit(self, X: ndarray, pairs: List[Pair]) -> None:
+        """Fit the model.
+
+        Args:
+            X (ndarray): The feature matrix
+
+            pairs (List[Pair]): The pairs
+        """
         pairs = _filter_pairs(X, pairs)
         self._underlying.fit(X, pairs)
 
