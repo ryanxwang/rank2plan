@@ -73,11 +73,18 @@ class LpModel(Model):
         pairs_train = _filter_pairs(X_train, pairs_train)
         pairs_val = _filter_pairs(X_val, pairs_val)
 
+        def log_scale(x):
+            return np.log10(x)
+
+        def exp_scale(x):
+            return 10**x
+
         def validation_score(weights: ndarray) -> float:
             scores = self._underlying.predict(X_val)
             return kendall_tau(pairs_val, scores)
 
-        def f(C: float):
+        def f(log_C: float):
+            C = exp_scale(log_C)
             self._underlying.refit_with_C_value(C, save_state=True)
             val_score = validation_score(self.weights())  # type: ignore
             LOGGER.info(f"Validation score for C={C}: {val_score}")
@@ -85,17 +92,19 @@ class LpModel(Model):
 
         optimiser = BayesianOptimization(
             f=f,
-            pbounds={"C": C_range},
+            pbounds={"log_C": (log_scale(C_range[0]), log_scale(C_range[1]))},
             verbose=0,
             random_state=1,
         )
 
         self._underlying.fit(X_train, pairs_train, save_state=True)
         initial_score = validation_score(self.weights())  # type: ignore
-        optimiser.register(params={"C": self._underlying.C}, target=initial_score)
+        optimiser.register(
+            params={"log_C": log_scale(self._underlying.C)}, target=initial_score
+        )
         optimiser.maximize(init_points=5, n_iter=tuning_rounds - 5)
 
-        best_C = optimiser.max["params"]["C"]  # type: ignore
+        best_C = exp_scale(optimiser.max["params"]["log_C"])  # type: ignore
         best_score = optimiser.max["target"]  # type: ignore
         LOGGER.info(
             f"Tuning found best C={best_C} with validation score {best_score}",
