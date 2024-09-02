@@ -73,11 +73,7 @@ class LpModel(Model):
         pairs_train = _filter_pairs(X_train, pairs_train)
         pairs_val = _filter_pairs(X_val, pairs_val)
 
-        # X_tilde_val = compute_X_tilde(X, pairs_val)
-
         def validation_score(weights: ndarray) -> float:
-            # negative because we are minimising
-            # return -compute_main_objective(X_tilde_val, pairs_val, weights)
             scores = self._underlying.predict(X_val)
             return kendall_tau(pairs_val, scores)
 
@@ -100,9 +96,9 @@ class LpModel(Model):
         optimiser.maximize(init_points=5, n_iter=tuning_rounds - 5)
 
         best_C = optimiser.max["params"]["C"]  # type: ignore
-        best_score = -optimiser.max["target"]  # type: ignore
+        best_score = optimiser.max["target"]  # type: ignore
         LOGGER.info(
-            f"Refitting on complete data set with found best C: {best_C}, which gave the best score: {best_score}",
+            f"Tuning found best C={best_C} with validation score {best_score}",
         )
         self._underlying.state = None
         self._underlying.C = best_C
