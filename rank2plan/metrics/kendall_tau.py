@@ -20,7 +20,7 @@ def kendall_tau(pairs: List[Pair], scores: ndarray) -> float:
     for pair in pairs:
         i, j = pair.i, pair.j
         # ignore gaps in kendall tau
-        if scores[i] <= scores[j]:
+        if scores[i] < scores[j]:
             concordant += pair.sample_weight
         else:
             discordant += pair.sample_weight
