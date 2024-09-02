@@ -50,6 +50,9 @@ def test_constraint_column_generation_tune_then_fit_miconic(
 
     split_index = int(len(pairs) * 0.8)
     pairs_train, pairs_val = pairs[:split_index], pairs[split_index:]
-    model.tune_then_fit(X, pairs_train, pairs_val)
+    X_train = X
+    X_val = X
+
+    model.tune(X_train, pairs_train, X_val, pairs_val)
     train_scores = model.predict(X)
     assert kendall_tau(pairs, train_scores) > 0.4
