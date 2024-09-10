@@ -25,7 +25,6 @@ class FitState:
     anyway.
     """
 
-    X: ndarray
     pairs: List[Pair]
 
 
@@ -93,13 +92,13 @@ class PrimalLpModel(Model):
             [beta_plus[i].varValue - beta_minus[i].varValue for i in range(P)]  # type: ignore
         )
         if save_state:
-            self.state = FitState(X, pairs)
+            self.state = FitState(pairs)
 
-    def refit_with_C_value(self, C: float, save_state=False) -> None:
+    def refit_with_C_value(self, X: ndarray, C: float, save_state=False) -> None:
         assert self.state is not None
         LOGGER.info(f"Refitting with C value changed from {self.C} to {C}")
         self.C = C
-        self.fit(self.state.X, self.state.pairs, save_state=save_state)
+        self.fit(X, self.state.pairs, save_state=save_state)
 
     def predict(self, X: ndarray) -> ndarray:
         return X @ self._weights

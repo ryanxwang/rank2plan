@@ -26,7 +26,7 @@ LOGGER = logging.getLogger(__name__)
 class FitState:
     N: int
     P: int
-    X_tilde: ndarray
+    # we don't save X_tilde here to save memory
     pairs: List[Pair]
     problem: LpProblem
     constraint_indices: List[int]
@@ -47,11 +47,7 @@ class ConstraintColumnModel(Model):
         self.state: Optional[FitState] = None
         self._weights: Optional[ndarray] = None
 
-    def fit(self, X: ndarray, pairs: List[Pair], save_state=False) -> None:
-        start = time()
-        X_tilde = compute_X_tilde(X, pairs)
-        LOGGER.info(f"Computed X_tilde in {time() - start:.2f}s")
-
+    def fit(self, X_tilde: ndarray, pairs: List[Pair], save_state=False) -> None:
         start = time()
         if self.no_feature_sampling:
             constraint_indices = _init_constraint_sampling_smoothing(
@@ -71,19 +67,19 @@ class ConstraintColumnModel(Model):
         )
 
         N, P = X_tilde.shape
-        self.state = FitState(
-            N, P, X_tilde, pairs, problem, constraint_indices, feature_indices
-        )
-        self._fit()
+        self.state = FitState(N, P, pairs, problem, constraint_indices, feature_indices)
+        self._fit(X_tilde)
         if not save_state:
             self.state = None
 
-    def refit_with_C_value(self, C: float, save_state=False) -> None:
+    def refit_with_C_value(self, X_tilde: ndarray, C: float, save_state=False) -> None:
+        # this X_tilde must be the same as the one used in the initial fit, we
+        # don't save it to save memory
         assert self.state is not None
         LOGGER.info(f"Refitting with C value changed from {self.C} to {C}")
         self.C = C
         self.state.problem = self._rebuild_subproblem_objective(self.state.problem)
-        self._fit()
+        self._fit(X_tilde)
         if not save_state:
             self.state = None
 
@@ -93,7 +89,7 @@ class ConstraintColumnModel(Model):
     def weights(self) -> Optional[ndarray]:
         return self._weights
 
-    def _fit(self) -> None:
+    def _fit(self, X_tilde: ndarray) -> None:
         assert self.state is not None
         N, P = self.state.N, self.state.P
         features_to_check = list(set(range(P)) - set(self.state.feature_indices))
@@ -139,7 +135,7 @@ class ConstraintColumnModel(Model):
             )
 
             # Reduced costs for features
-            X_tilde_reduced = self.state.X_tilde[self.state.constraint_indices, :][
+            X_tilde_reduced = X_tilde[self.state.constraint_indices, :][
                 :, features_to_check
             ]
             reduced_costs_features = (1 / self.C) * np.ones(
@@ -153,7 +149,7 @@ class ConstraintColumnModel(Model):
                 indices = np.argsort(reduced_costs_features)[:400]
                 violated_features = np.array(features_to_check)[indices]
 
-            X_tilde_reduced = self.state.X_tilde[:, self.state.feature_indices][
+            X_tilde_reduced = X_tilde[:, self.state.feature_indices][
                 constraint_to_check, :
             ]
             reduced_costs_constraints = gs[constraint_to_check] - np.dot(
@@ -173,7 +169,7 @@ class ConstraintColumnModel(Model):
                     f"Most negative feature reduced cost: {np.min(reduced_costs_features)}"
                 )
                 self.state.problem = self._add_features_to_subproblem(
-                    self.state.X_tilde,
+                    X_tilde,
                     self.state.pairs,
                     self.state.problem,
                     violated_features,
@@ -200,7 +196,7 @@ class ConstraintColumnModel(Model):
                     f"Most violated constraint: {np.max(reduced_costs_constraints)}"
                 )
                 self.state.problem = self._add_constraints_to_subproblem(
-                    self.state.X_tilde,
+                    X_tilde,
                     self.state.pairs,
                     self.state.problem,
                     violated_constraints,
@@ -243,10 +239,10 @@ class ConstraintColumnModel(Model):
         )
         LOGGER.info(f"Pulp objective: {self.state.problem.objective.value()}")  # type: ignore
         LOGGER.info(
-            f"Overall objective: {compute_overall_objective(self.state.X_tilde, self.state.pairs, self._weights, self.C)}"
+            f"Overall objective: {compute_overall_objective(X_tilde, self.state.pairs, self._weights, self.C)}"
         )
         LOGGER.info(
-            f"Main objective: {compute_main_objective(self.state.X_tilde, self.state.pairs, self._weights)}"
+            f"Main objective: {compute_main_objective(X_tilde, self.state.pairs, self._weights)}"
         )
         LOGGER.info(
             f"Regularisation objective: {compute_regularisation_objective(self._weights)}"
