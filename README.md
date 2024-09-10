@@ -17,7 +17,7 @@ Install with
 pip install rank2plan
 ```
 
-The PyPI release only supports `3.8 <= python <= 3.10` for now.
+The PyPI release only supports `3.9 <= python` for now.
 
 ## Examples
 
