@@ -68,12 +68,15 @@ class LpModel(Model):
         C_range=(0.001, 100),
         tuning_rounds=25,
     ) -> float:
+        assert isinstance(self._underlying, ConstraintColumnModel)
         if tuning_rounds < 5:
             raise ValueError("tuning_rounds should be at least 5")
 
         pairs_train = _filter_pairs(X_train, pairs_train)
         pairs_val = _filter_pairs(X_val, pairs_val)
         X_tilde_val = compute_X_tilde(X_val, pairs_val)
+        X_tilde_train = compute_X_tilde(X_train, pairs_train)
+        del X_train
 
         def log_scale(x):
             return np.log10(x)
@@ -93,7 +96,7 @@ class LpModel(Model):
 
         def f(log_C: float):
             C = exp_scale(log_C)
-            self._underlying.refit_with_C_value(C, save_state=True)
+            self._underlying.refit_with_C_value(X_tilde_train, C, save_state=True)
             val_score = validation_score(self.weights())  # type: ignore
             LOGGER.info(f"Validation score for C={C}: {val_score}")
             return val_score
@@ -105,7 +108,7 @@ class LpModel(Model):
             random_state=1,
         )
 
-        self._underlying.fit(X_train, pairs_train, save_state=True)
+        self._underlying.fit(X_tilde_train, pairs_train, save_state=True)
         initial_score = validation_score(self.weights())  # type: ignore
         optimiser.register(
             params={"log_C": log_scale(self._underlying.C)}, target=initial_score
@@ -130,7 +133,11 @@ class LpModel(Model):
             pairs (List[Pair]): The pairs
         """
         pairs = _filter_pairs(X, pairs)
-        self._underlying.fit(X, pairs)
+        if isinstance(self._underlying, ConstraintColumnModel):
+            X_tilde = compute_X_tilde(X, pairs)
+            self._underlying.fit(X_tilde, pairs)
+        else:
+            self._underlying.fit(X, pairs)
 
     def predict(self, X):
         return self._underlying.predict(X)
