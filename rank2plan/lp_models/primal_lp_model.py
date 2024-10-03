@@ -1,7 +1,7 @@
 from typing import List, Optional
-from rank2plan.model import Model
-from rank2plan.types import Pair
+from rank2plan.types import Pair, Matrix
 from rank2plan.lp_models.lp_underlying import LpUnderlying
+from rank2plan.lp_models.utils import sparseLpDot
 import numpy as np
 from numpy import ndarray
 from pulp import (
@@ -14,6 +14,7 @@ from pulp import (
     LpSolver,
 )
 from dataclasses import dataclass
+from scipy.sparse import issparse, spmatrix
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class PrimalLpModel(LpUnderlying):
         self.state: Optional[FitState] = None
         self._weights = None
 
-    def fit(self, X_tilde: ndarray, pairs: List[Pair], save_state=False) -> None:
+    def fit(self, X_tilde: Matrix, pairs: List[Pair], save_state=False) -> None:
         _, P = X_tilde.shape
 
         prob = LpProblem("PrimalLp", LpMinimize)
@@ -69,10 +70,20 @@ class PrimalLpModel(LpUnderlying):
         for pair_id, pair in enumerate(pairs):
             xi.append(LpVariable(f"xi_{pair_id}_{pair.i}_{pair.j}", lowBound=0))
             # this order of j and i makes lower scores better
-            prob += (
-                lpDot(beta_plus, X_tilde[pair_id]) - lpDot(beta_minus, X_tilde[pair_id])
-                >= pair.gap - xi[-1]
-            )
+            if issparse(X_tilde):
+                assert isinstance(X_tilde, spmatrix)
+                prob += (
+                    sparseLpDot(beta_plus, X_tilde.getrow(pair_id))
+                    - sparseLpDot(beta_minus, X_tilde.getrow(pair_id))
+                    >= pair.gap - xi[-1]
+                )
+            else:
+                assert isinstance(X_tilde, np.ndarray)
+                prob += (
+                    lpDot(beta_plus, X_tilde[pair_id])
+                    - lpDot(beta_minus, X_tilde[pair_id])
+                    >= pair.gap - xi[-1]
+                )
             sample_weights.append(pair.sample_weight)
 
         main_objective: LpAffineExpression = lpDot(xi, sample_weights)  # type: ignore
@@ -95,13 +106,14 @@ class PrimalLpModel(LpUnderlying):
         if save_state:
             self.state = FitState(pairs)
 
-    def refit_with_C_value(self, X_tilde: ndarray, C: float, save_state=False) -> None:
+    def refit_with_C_value(self, X_tilde: Matrix, C: float, save_state=False) -> None:
         assert self.state is not None
         LOGGER.info(f"Refitting with C value changed from {self._C} to {C}")
         self._C = C
         self.fit(X_tilde, self.state.pairs, save_state=save_state)
 
-    def predict(self, X: ndarray) -> ndarray:
+    def predict(self, X: Matrix) -> ndarray:
+        assert isinstance(self._weights, np.ndarray)
         return X @ self._weights
 
     def weights(self) -> Optional[ndarray]:

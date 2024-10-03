@@ -5,6 +5,7 @@ from typing import List, Tuple
 from rank2plan.types import Pair
 from pulp import LpSolver, PULP_CBC_CMD
 import json
+from scipy.sparse import csr_matrix, spmatrix
 
 
 @pytest.fixture
@@ -26,6 +27,14 @@ def small_ranking_dataset() -> Tuple[ndarray, List[Pair]]:
 
 
 @pytest.fixture
+def small_sparse_ranking_dataset(small_ranking_dataset) -> Tuple[spmatrix, List[Pair]]:
+    X, pairs = small_ranking_dataset
+    X = csr_matrix(X)
+
+    return (X, pairs)
+
+
+@pytest.fixture
 def miconic_mock_dataset() -> Tuple[ndarray, List[Pair]]:
     raw = json.load(open("tests/data/miconic_mock_data.json"))
     X = np.array(raw["features"])
@@ -41,6 +50,14 @@ def miconic_mock_dataset() -> Tuple[ndarray, List[Pair]]:
 
     # sample only some pairs for speed
     pairs = pairs[:200]
+    return (X, pairs)
+
+
+@pytest.fixture
+def miconic_mock_sparse_dataset(miconic_mock_dataset) -> Tuple[spmatrix, List[Pair]]:
+    X, pairs = miconic_mock_dataset
+    X = csr_matrix(X)
+
     return (X, pairs)
 
 

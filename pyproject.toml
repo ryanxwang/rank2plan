@@ -6,10 +6,11 @@ authors = ["Ryan Wang <ryanxiaowang2001@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.10"
 numpy = "^1.22.0"
 pulp = "^2.8.0"
 bayesian-optimization = "^1.5.1"
+scipy = "^1.14.1"
 
 
 [tool.poetry.group.dev.dependencies]

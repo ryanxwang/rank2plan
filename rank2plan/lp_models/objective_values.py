@@ -1,14 +1,14 @@
 from numpy import ndarray
 import numpy as np
 from typing import List
-from rank2plan import Pair
+from rank2plan import Pair, Matrix
 
 
-def compute_main_objective(X_tilde: ndarray, pairs: List[Pair], beta: ndarray) -> float:
+def compute_main_objective(X_tilde: Matrix, pairs: List[Pair], beta: ndarray) -> float:
     """Compute the main objective of the model, not considering C value.
 
     Args:
-        X_tilde (ndarray): The X_tilde feature matrix
+        X_tilde (Matrix): The X_tilde feature matrix
         pairs (List[Pair]): The pairs
         beta (ndarray): The weights
 
@@ -17,7 +17,10 @@ def compute_main_objective(X_tilde: ndarray, pairs: List[Pair], beta: ndarray) -
     """
     res = 0
     for i, pair in enumerate(pairs):
-        res += max(0, pair.sample_weight * pair.gap - X_tilde[i].T.dot(beta))
+        if isinstance(X_tilde, np.ndarray):
+            res += max(0, pair.sample_weight * pair.gap - X_tilde[i].dot(beta))
+        else:
+            res += max(0, pair.sample_weight * pair.gap - X_tilde.getrow(i).T.dot(beta))
     return res
 
 

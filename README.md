@@ -17,7 +17,7 @@ Install with
 pip install rank2plan
 ```
 
-The PyPI release only supports `3.9 <= python` for now.
+This package requires Python 3.10 or later.
 
 ## Examples
 
