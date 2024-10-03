@@ -1,6 +1,7 @@
 from typing import List, Optional
 from rank2plan.model import Model
 from rank2plan.types import Pair
+from rank2plan.lp_models.lp_underlying import LpUnderlying
 import numpy as np
 from numpy import ndarray
 from pulp import (
@@ -28,7 +29,7 @@ class FitState:
     pairs: List[Pair]
 
 
-class PrimalLpModel(Model):
+class PrimalLpModel(LpUnderlying):
     """The primal LP model for RankSVM. Based on equation (5) of (Dedieu et al,
     2022). This should mainly be used for debugging and testing purposes.
     """
@@ -45,13 +46,12 @@ class PrimalLpModel(Model):
             C (float, optional): Regularisation parameter. Defaults to 1.0.
         """
         self.solver = solver
-        self.C = C
+        self._C = C
         self.state: Optional[FitState] = None
         self._weights = None
 
-    def fit(self, X: ndarray, pairs: List[Pair], save_state=False) -> None:
-        N = X.shape[0]
-        P = X.shape[1]
+    def fit(self, X_tilde: ndarray, pairs: List[Pair], save_state=False) -> None:
+        _, P = X_tilde.shape
 
         prob = LpProblem("PrimalLp", LpMinimize)
         beta_plus: List[LpVariable] = []
@@ -67,18 +67,19 @@ class PrimalLpModel(Model):
         xi: List[LpVariable] = []
         sample_weights: List[float] = []
         for pair_id, pair in enumerate(pairs):
-            h_value_i = lpDot(beta_plus, X[pair.i]) - lpDot(beta_minus, X[pair.i])
-            h_value_j = lpDot(beta_plus, X[pair.j]) - lpDot(beta_minus, X[pair.j])
             xi.append(LpVariable(f"xi_{pair_id}_{pair.i}_{pair.j}", lowBound=0))
             # this order of j and i makes lower scores better
-            prob += h_value_j - h_value_i >= pair.gap - xi[-1]
+            prob += (
+                lpDot(beta_plus, X_tilde[pair_id]) - lpDot(beta_minus, X_tilde[pair_id])
+                >= pair.gap - xi[-1]
+            )
             sample_weights.append(pair.sample_weight)
 
         main_objective: LpAffineExpression = lpDot(xi, sample_weights)  # type: ignore
         regularisation_objective: LpAffineExpression = lpSum(beta_plus) + lpSum(
             beta_minus
         )
-        prob += main_objective * self.C + regularisation_objective
+        prob += main_objective * self._C + regularisation_objective
         LOGGER.info("Problem build, solving")
 
         prob.solve(self.solver)
@@ -94,14 +95,25 @@ class PrimalLpModel(Model):
         if save_state:
             self.state = FitState(pairs)
 
-    def refit_with_C_value(self, X: ndarray, C: float, save_state=False) -> None:
+    def refit_with_C_value(self, X_tilde: ndarray, C: float, save_state=False) -> None:
         assert self.state is not None
-        LOGGER.info(f"Refitting with C value changed from {self.C} to {C}")
-        self.C = C
-        self.fit(X, self.state.pairs, save_state=save_state)
+        LOGGER.info(f"Refitting with C value changed from {self._C} to {C}")
+        self._C = C
+        self.fit(X_tilde, self.state.pairs, save_state=save_state)
 
     def predict(self, X: ndarray) -> ndarray:
         return X @ self._weights
 
     def weights(self) -> Optional[ndarray]:
         return self._weights
+
+    def clear_state(self) -> None:
+        self.state = None
+
+    @property
+    def C(self) -> float:
+        return self._C
+
+    @C.setter
+    def C(self, value: float) -> None:
+        self._C = value
