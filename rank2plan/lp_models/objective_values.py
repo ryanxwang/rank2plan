@@ -20,7 +20,11 @@ def compute_main_objective(X_tilde: Matrix, pairs: List[Pair], beta: ndarray) ->
         if isinstance(X_tilde, np.ndarray):
             res += max(0, pair.sample_weight * pair.gap - X_tilde[i].dot(beta))
         else:
-            res += max(0, pair.sample_weight * pair.gap - X_tilde.getrow(i).T.dot(beta))
+            # without the item(), the result is a list of one element, silly
+            # scipy
+            res += max(
+                0, pair.sample_weight * pair.gap - X_tilde.getrow(i).dot(beta).item()
+            )
     return res
 
 
@@ -29,7 +33,7 @@ def compute_regularisation_objective(beta: ndarray) -> float:
 
 
 def compute_overall_objective(
-    X_tilde: ndarray, pairs: List[Pair], beta: ndarray, C: float
+    X_tilde: Matrix, pairs: List[Pair], beta: ndarray, C: float
 ) -> float:
     return compute_main_objective(
         X_tilde, pairs, beta

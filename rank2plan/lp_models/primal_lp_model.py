@@ -52,6 +52,7 @@ class PrimalLpModel(LpUnderlying):
         self._weights = None
 
     def fit(self, X_tilde: Matrix, pairs: List[Pair], save_state=False) -> None:
+        assert X_tilde.shape is not None
         _, P = X_tilde.shape
 
         prob = LpProblem("PrimalLp", LpMinimize)

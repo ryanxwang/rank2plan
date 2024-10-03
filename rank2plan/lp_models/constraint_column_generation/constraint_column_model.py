@@ -1,4 +1,4 @@
-from rank2plan import Pair, LossType, PenalisationType
+from rank2plan import Pair, LossType, PenalisationType, Matrix
 from rank2plan.lp_models.constraint_column_generation.smoothing_hinge_loss import (
     loop_smoothing_hinge_loss_columns_samples_restricted,
     loop_smoothing_hinge_loss_samples_restricted,
@@ -8,8 +8,8 @@ from rank2plan.lp_models.objective_values import (
     compute_regularisation_objective,
     compute_overall_objective,
 )
+from rank2plan.lp_models.utils import sparseLpDot
 from rank2plan.lp_models.lp_underlying import LpUnderlying
-from rank2plan.lp_models.constraint_column_generation.utils import compute_X_tilde
 from pulp import LpSolver, LpProblem, LpMinimize, LpVariable, lpSum, lpDot, LpConstraint
 from typing import List, Optional, Tuple
 from numpy import ndarray
@@ -19,6 +19,7 @@ import logging
 import random
 import math
 from dataclasses import dataclass
+from scipy.sparse import csr_matrix, issparse
 
 LOGGER = logging.getLogger(__name__)
 
@@ -59,12 +60,13 @@ class ConstraintColumnModel(LpUnderlying):
     def C(self, value: float) -> None:
         self._C = value
 
-    def fit(self, X_tilde: ndarray, pairs: List[Pair], save_state=False) -> None:
+    def fit(self, X_tilde: Matrix, pairs: List[Pair], save_state=False) -> None:
         start = time()
         if self.no_feature_sampling:
             constraint_indices = _init_constraint_sampling_smoothing(
                 X_tilde, pairs, self._C
             )
+            assert X_tilde.shape is not None
             feature_indices = list(range(X_tilde.shape[1]))
         else:
             constraint_indices, feature_indices = (
@@ -78,13 +80,14 @@ class ConstraintColumnModel(LpUnderlying):
             X_tilde, pairs, constraint_indices, feature_indices, None
         )
 
+        assert X_tilde.shape is not None
         N, P = X_tilde.shape
         self.state = FitState(N, P, pairs, problem, constraint_indices, feature_indices)
         self._fit(X_tilde)
         if not save_state:
             self.state = None
 
-    def refit_with_C_value(self, X_tilde: ndarray, C: float, save_state=False) -> None:
+    def refit_with_C_value(self, X_tilde: Matrix, C: float, save_state=False) -> None:
         # this X_tilde must be the same as the one used in the initial fit, we
         # don't save it to save memory
         assert self.state is not None
@@ -95,13 +98,16 @@ class ConstraintColumnModel(LpUnderlying):
         if not save_state:
             self.state = None
 
-    def predict(self, X: ndarray) -> ndarray:
+    def predict(self, X: Matrix) -> ndarray:
+        assert self._weights is not None
         return X @ self._weights
 
     def weights(self) -> Optional[ndarray]:
         return self._weights
 
-    def _fit(self, X_tilde: ndarray) -> None:
+    def _fit(self, X_tilde: Matrix) -> None:
+        assert isinstance(X_tilde, np.ndarray) or isinstance(X_tilde, csr_matrix)
+        is_sparse = issparse(X_tilde)
         assert self.state is not None
         N, P = self.state.N, self.state.P
         features_to_check = list(set(range(P)) - set(self.state.feature_indices))
@@ -147,12 +153,16 @@ class ConstraintColumnModel(LpUnderlying):
             )
 
             # Reduced costs for features
-            X_tilde_reduced = X_tilde[self.state.constraint_indices, :][
+            X_tilde_reduced: Matrix = X_tilde[self.state.constraint_indices, :][  # type: ignore
                 :, features_to_check
             ]
-            reduced_costs_features = (1 / self._C) * np.ones(
+            reduced_costs_features: ndarray = (1 / self._C) * np.ones(
                 len(features_to_check)
-            ) - np.abs(np.dot(X_tilde_reduced.T, dual_values))
+            ) - np.abs(
+                np.dot(X_tilde_reduced.T, dual_values)
+                if not is_sparse
+                else (X_tilde_reduced.T.dot(dual_values))
+            )
             violated_features = np.array(features_to_check)[
                 reduced_costs_features < -self.tol
             ]
@@ -161,11 +171,13 @@ class ConstraintColumnModel(LpUnderlying):
                 indices = np.argsort(reduced_costs_features)[:400]
                 violated_features = np.array(features_to_check)[indices]
 
-            X_tilde_reduced = X_tilde[:, self.state.feature_indices][
+            X_tilde_reduced: Matrix = X_tilde[:, self.state.feature_indices][  # type: ignore
                 constraint_to_check, :
             ]
-            reduced_costs_constraints = gs[constraint_to_check] - np.dot(
-                X_tilde_reduced, beta
+            reduced_costs_constraints: ndarray = (
+                gs[constraint_to_check] - np.dot(X_tilde_reduced, beta)  # type: ignore
+                if not is_sparse
+                else gs[constraint_to_check] - X_tilde_reduced.dot(beta)
             )
             violated_constraints = np.array(constraint_to_check)[
                 reduced_costs_constraints > self.tol
@@ -262,14 +274,16 @@ class ConstraintColumnModel(LpUnderlying):
 
     def _build_subproblem(
         self,
-        X_tilde: ndarray,
+        X_tilde: Matrix,
         pairs: List[Pair],
         constraint_indices: List[int],
         feature_indices: List[int],
         warm_start: Optional[ndarray],
     ) -> LpProblem:
         start = time()
+        assert X_tilde.shape is not None
         N, P = X_tilde.shape
+        is_sparse = issparse(X_tilde)
         N_constraints = len(constraint_indices)
         P_features = len(feature_indices)
         sample_weights = [
@@ -305,17 +319,27 @@ class ConstraintColumnModel(LpUnderlying):
         )
 
         # The selected constraints using the selected features
-        X_tilde_reduced = X_tilde[:, feature_indices]
+        X_tilde_reduced: Matrix = X_tilde[:, feature_indices]  # type: ignore
         for i, constraint_id in enumerate(constraint_indices):
             pair = pairs[constraint_id]
-            problem.addConstraint(
-                (
-                    lpDot(X_tilde_reduced[constraint_id], beta_plus)
-                    - lpDot(X_tilde_reduced[constraint_id], beta_minus)
-                    >= pair.gap * pair.sample_weight - pair.sample_weight * xi[i]
-                ),
-                name=f"constraint_{constraint_id}",
-            )
+            if is_sparse:
+                problem.addConstraint(
+                    (
+                        sparseLpDot(X_tilde_reduced.getrow(constraint_id), beta_plus)  # type: ignore
+                        - sparseLpDot(X_tilde_reduced.getrow(constraint_id), beta_minus)  # type: ignore
+                        >= pair.gap * pair.sample_weight - pair.sample_weight * xi[i]
+                    ),
+                    name=f"constraint_{constraint_id}",
+                )
+            else:
+                problem.addConstraint(
+                    (
+                        lpDot(X_tilde_reduced[constraint_id], beta_plus)
+                        - lpDot(X_tilde_reduced[constraint_id], beta_minus)
+                        >= pair.gap * pair.sample_weight - pair.sample_weight * xi[i]
+                    ),
+                    name=f"constraint_{constraint_id}",
+                )
 
         if warm_start is not None:
             for i, feature_id in enumerate(feature_indices):
@@ -327,12 +351,13 @@ class ConstraintColumnModel(LpUnderlying):
 
     def _add_features_to_subproblem(
         self,
-        X_tilde: ndarray,
+        X_tilde: Matrix,
         pairs: List[Pair],
         problem: LpProblem,
         violated_features: ndarray,
         current_constraints: List[int],
     ) -> LpProblem:
+        is_sparse = issparse(X_tilde)
         # add new features
         added_beta_plus = []
         added_beta_minus = []
@@ -343,18 +368,29 @@ class ConstraintColumnModel(LpUnderlying):
                 LpVariable(_beta_minus_name(feature_id), lowBound=0)
             )
 
-        X_tilde_reduced = X_tilde[:, violated_features]
+        X_tilde_reduced: Matrix = X_tilde[:, violated_features]  # type: ignore
         problem.addVariables(added_beta_plus)
         problem.addVariables(added_beta_minus)
         for constraint_id in current_constraints:
             old_constraint: LpConstraint = problem.constraints[
                 _constraint_name(constraint_id)
             ]
-            updated_constraint = (
-                old_constraint
-                + lpDot(X_tilde_reduced[constraint_id], added_beta_plus)
-                - lpDot(X_tilde_reduced[constraint_id], added_beta_minus)
-            )
+            if is_sparse:
+                updated_constraint = (
+                    old_constraint
+                    + sparseLpDot(
+                        X_tilde_reduced.getrow(constraint_id), added_beta_plus  # type: ignore
+                    )
+                    - sparseLpDot(
+                        X_tilde_reduced.getrow(constraint_id), added_beta_minus  # type: ignore
+                    )
+                )
+            else:
+                updated_constraint = (
+                    old_constraint
+                    + lpDot(X_tilde_reduced[constraint_id], added_beta_plus)
+                    - lpDot(X_tilde_reduced[constraint_id], added_beta_minus)
+                )
             problem.constraints[_constraint_name(constraint_id)] = updated_constraint
             problem.modifiedConstraints.append(updated_constraint)
 
@@ -367,7 +403,7 @@ class ConstraintColumnModel(LpUnderlying):
 
     def _add_constraints_to_subproblem(
         self,
-        X_tilde: ndarray,
+        X_tilde: Matrix,
         pairs: List[Pair],
         problem: LpProblem,
         violated_constraints: ndarray,
@@ -375,23 +411,36 @@ class ConstraintColumnModel(LpUnderlying):
         beta_plus: List[LpVariable],
         beta_minus: List[LpVariable],
     ):
+        is_sparse = issparse(X_tilde)
         xis_to_add = []
         sample_weights_to_add = []
-        X_reduced = X_tilde[:, current_features]
+        X_reduced: Matrix = X_tilde[:, current_features]  # type: ignore
 
         for violated_constraint in violated_constraints:
             pair = pairs[violated_constraint]
             xi_violated = LpVariable(
                 f"xi_{violated_constraint}_{pair.i}_{pair.j}", lowBound=0
             )
-            problem.addConstraint(
-                (
-                    lpDot(X_reduced[violated_constraint], beta_plus)
-                    - lpDot(X_reduced[violated_constraint], beta_minus)
-                    >= pair.gap * pair.sample_weight - pair.sample_weight * xi_violated
-                ),
-                name=f"constraint_{violated_constraint}",
-            )
+            if is_sparse:
+                problem.addConstraint(
+                    (
+                        sparseLpDot(X_reduced.getrow(violated_constraint), beta_plus)  # type: ignore
+                        - sparseLpDot(X_reduced.getrow(violated_constraint), beta_minus)  # type: ignore
+                        >= pair.gap * pair.sample_weight
+                        - pair.sample_weight * xi_violated
+                    ),
+                    name=_constraint_name(violated_constraint),
+                )
+            else:
+                problem.addConstraint(
+                    (
+                        lpDot(X_reduced[violated_constraint], beta_plus)
+                        - lpDot(X_reduced[violated_constraint], beta_minus)
+                        >= pair.gap * pair.sample_weight
+                        - pair.sample_weight * xi_violated
+                    ),
+                    name=_constraint_name(violated_constraint),
+                )
             xis_to_add.append(xi_violated)
             sample_weights_to_add.append(pair.sample_weight)
 
@@ -451,11 +500,17 @@ def _constraint_name(constraint_id: int) -> str:
 
 
 def _init_constraint_column_sampling_smoothing(
-    X_tilde: ndarray, pairs: List[Pair], C: float
+    X_tilde: Matrix, pairs: List[Pair], C: float
 ) -> Tuple[List[int], List[int]]:
     pairs_np = np.array(pairs)
+    assert X_tilde.shape is not None
     N, P = X_tilde.shape
-    rho = (1 / C) / np.max(np.sum(np.abs(X_tilde), axis=0))
+    is_sparse = issparse(X_tilde)
+    if is_sparse:
+        rho = (1 / C) / np.max(abs(X_tilde).sum(axis=0))
+    else:
+        assert isinstance(X_tilde, np.ndarray)
+        rho = (1 / C) / np.max(np.sum(np.abs(X_tilde), axis=0))
 
     N0 = 5 * int(math.sqrt(N))
     P0 = 5 * int(math.sqrt(P))
@@ -477,16 +532,26 @@ def _init_constraint_column_sampling_smoothing(
         LOGGER.info(f"Difference in l2 norm: {delta_l2_diff_mean}")
 
         subset = np.sort(random.sample(range(N), N0))
-        X_tilde_reduced = X_tilde[subset]
+        X_tilde_reduced: Matrix = X_tilde[subset]  # type: ignore
         pairs_reduced = pairs_np[subset]
 
         # Correlation screening
-        argsort_columns = np.argsort(np.abs(np.sum(X_tilde_reduced, axis=0)))
-        index_columns = argsort_columns[::-1][:P0]
+        argsort_columns = np.argsort(
+            np.abs(
+                np.sum(X_tilde_reduced, axis=0)  # type: ignore
+                if not is_sparse
+                else X_tilde_reduced.sum(axis=0)
+            )
+        )
+        index_columns = np.ravel(argsort_columns[::-1][:P0])
 
-        X_tilde_reduced = X_tilde_reduced[:, index_columns]
+        X_tilde_reduced: Matrix = X_tilde_reduced[:, index_columns]  # type: ignore
 
-        alpha_sample = rho * np.max(np.sum(np.abs(X_tilde_reduced), axis=0))
+        if is_sparse:
+            alpha_sample = rho * np.max(abs(X_tilde_reduced).sum(axis=0))
+        else:
+            assert isinstance(X_tilde_reduced, np.ndarray)
+            alpha_sample = rho * np.max(np.sum(np.abs(X_tilde_reduced), axis=0))
 
         tau_max = 0.2
         n_loop = 20
@@ -524,7 +589,11 @@ def _init_constraint_column_sampling_smoothing(
         LOGGER.info(f"Reduced primal support size to {max_n_cols}")
 
     gs = np.array([pair.gap * pair.sample_weight for pair in pairs])
-    constraints = 1 * gs - np.dot(X_tilde, beta_averaged)
+    constraints = (
+        gs - np.dot(X_tilde, beta_averaged)  # type: ignore
+        if not is_sparse
+        else gs - X_tilde.dot(beta_averaged)
+    )
     index_samples_smoothing = np.arange(N)[constraints >= 0]
     LOGGER.info(f"Len dual smoothing: {len(index_samples_smoothing)}")
 
@@ -532,12 +601,12 @@ def _init_constraint_column_sampling_smoothing(
 
 
 def _init_constraint_sampling_smoothing(
-    X_tilde: ndarray, pairs: List[Pair], C: float, is_restricted=True
+    X_tilde: Matrix, pairs: List[Pair], C: float, is_restricted=True
 ) -> List[int]:
     """Initial sampling for constraint generation using smoothing.
 
     Args:
-        X_tilde (ndarray): The X_tilde matrix, shape (n_pairs, n_features).
+        X_tilde (Matrix): The X_tilde matrix, shape (n_pairs, n_features).
         pairs (List[Pair]): The list of pairs, shape (n_pairs,).
         C (float): The regularisation parameter.
         is_restricted (bool, optional): Not sure yet :(. Defaults to True.
@@ -545,12 +614,18 @@ def _init_constraint_sampling_smoothing(
     Returns:
         List[int]: the initial set of constraints
     """
+    assert X_tilde.shape is not None
+    is_sparse = issparse(X_tilde)
 
     pairs_np = np.array(pairs)
     N, P = X_tilde.shape
-    rho = (1 / C) / np.max(
-        np.sum(np.abs(X_tilde), axis=0)
-    )  # lambda (1/C) relative to norms
+    if isinstance(X_tilde, csr_matrix):
+        rho = (1 / C) / np.max(abs(X_tilde).sum(axis=0))
+    else:
+        assert isinstance(X_tilde, np.ndarray)
+        rho = (1 / C) / np.max(
+            np.sum(np.abs(X_tilde), axis=0)
+        )  # lambda (1/C) relative to norms
 
     N0 = int(min(10 * P, 5 * math.sqrt(N)))
     if N0 < 3:
@@ -575,10 +650,14 @@ def _init_constraint_sampling_smoothing(
         LOGGER.info(f"Difference variance: {delta_variance}")
 
         subset = np.sort(random.sample(range(N), N0))
-        X_tilde_reduced = X_tilde[subset]
+        X_tilde_reduced: Matrix = X_tilde[subset]  # type: ignore
         pairs_reduced = pairs_np[subset]
 
-        alpha_sample = rho * np.max(np.sum(np.abs(X_tilde_reduced), axis=0))
+        if is_sparse:
+            alpha_sample = rho * np.max(abs(X_tilde_reduced).sum(axis=0))
+        else:
+            assert isinstance(X_tilde_reduced, np.ndarray)
+            alpha_sample = rho * np.max(np.sum(np.abs(X_tilde_reduced), axis=0))
 
         if is_restricted:
             n_loop = 10
@@ -617,7 +696,11 @@ def _init_constraint_sampling_smoothing(
 
     gs = np.array([pair.gap * pair.sample_weight for pair in pairs])
 
-    constraints = 1 * gs - (np.dot(X_tilde, beta_averaged))
+    constraints = (
+        gs - (np.dot(X_tilde, beta_averaged))  # type: ignore
+        if not is_sparse
+        else (gs - X_tilde.dot(beta_averaged))
+    )
     idx_samples_smoothing = np.arange(N)[constraints >= 0]
 
     LOGGER.info("Finished initial sampling")

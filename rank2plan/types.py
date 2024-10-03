@@ -1,9 +1,9 @@
 from enum import Enum, auto
 from numpy import ndarray
-from scipy.sparse import spmatrix
+from scipy.sparse import csr_matrix
 from typing import TypeAlias
 
-Matrix: TypeAlias = ndarray | spmatrix
+Matrix: TypeAlias = ndarray | csr_matrix
 
 
 class Pair:
