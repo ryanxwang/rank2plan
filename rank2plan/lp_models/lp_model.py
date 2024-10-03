@@ -1,4 +1,4 @@
-from rank2plan import Model, Pair, TuningMetric
+from rank2plan import Model, Pair, TuningMetric, Matrix
 from rank2plan.lp_models import PrimalLpModel
 from rank2plan.lp_models.constraint_column_generation import (
     ConstraintColumnModel,
@@ -13,6 +13,7 @@ from numpy import ndarray
 import numpy as np
 import logging
 from bayes_opt import BayesianOptimization
+from scipy.sparse import issparse, spmatrix
 
 LOGGER = logging.getLogger(__name__)
 
@@ -61,9 +62,9 @@ class LpModel(Model):
 
     def tune(
         self,
-        X_train: ndarray,
+        X_train: Matrix,
         pairs_train: List[Pair],
-        X_val: ndarray,
+        X_val: Matrix,
         pairs_val: List[Pair],
         metric: TuningMetric = TuningMetric.LpMainObjective,
         C_range=(0.001, 100),
@@ -143,15 +144,23 @@ class LpModel(Model):
         return self._underlying.weights()
 
 
-def _filter_pairs(X: ndarray, pairs: List[Pair]) -> List[Pair]:
+def _filter_pairs(X: Matrix, pairs: List[Pair]) -> List[Pair]:
     """Remove pairs where the feature vectors are identical, as they do not
     contribute to the model.
 
     Args:
-        X (ndarray): The feature matrix
+        X (Matrix): The feature matrix. If it is sparse, it should be optimised
+        for row access.
         pairs (List[Pair]): The pairs
 
     Returns:
         List[Pair]: pairs with distinct feature vectors
     """
-    return [pair for pair in pairs if not np.array_equal(X[pair.i], X[pair.j])]
+    if issparse(X):
+        assert isinstance(X, spmatrix)
+        return [
+            pair for pair in pairs if (X.getrow(pair.i) != X.getrow(pair.j)).nnz > 0
+        ]
+    else:
+        assert isinstance(X, np.ndarray)
+        return [pair for pair in pairs if not np.array_equal(X[pair.i], X[pair.j])]

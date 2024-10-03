@@ -1,4 +1,9 @@
 from enum import Enum, auto
+from numpy import ndarray
+from scipy.sparse import spmatrix
+from typing import TypeAlias
+
+Matrix: TypeAlias = ndarray | spmatrix
 
 
 class Pair:
