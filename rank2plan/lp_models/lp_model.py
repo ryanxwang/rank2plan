@@ -3,6 +3,7 @@ from rank2plan.lp_models import PrimalLpModel
 from rank2plan.lp_models.constraint_column_generation import (
     ConstraintColumnModel,
 )
+from rank2plan.lp_models.lp_underlying import LpUnderlying
 from rank2plan.lp_models.objective_values import compute_main_objective
 from rank2plan.metrics import kendall_tau
 from rank2plan.lp_models.constraint_column_generation.utils import compute_X_tilde
@@ -50,9 +51,9 @@ class LpModel(Model):
         if C <= 0:
             raise ValueError(f"C ({C}) must be positive")
         if not use_column_generation and not use_constraint_generation:
-            self._underlying = PrimalLpModel(solver, C=C)
+            self._underlying: LpUnderlying = PrimalLpModel(solver, C=C)
         elif use_constraint_generation:
-            self._underlying = ConstraintColumnModel(
+            self._underlying: LpUnderlying = ConstraintColumnModel(
                 solver, C, tol, no_feature_sampling=(not use_column_generation)
             )
         else:
@@ -68,7 +69,6 @@ class LpModel(Model):
         C_range=(0.001, 100),
         tuning_rounds=25,
     ) -> float:
-        assert isinstance(self._underlying, ConstraintColumnModel)
         if tuning_rounds < 5:
             raise ValueError("tuning_rounds should be at least 5")
 
@@ -120,7 +120,7 @@ class LpModel(Model):
         LOGGER.info(
             f"Tuning found best C={best_C} with validation score {best_score}",
         )
-        self._underlying.state = None
+        self._underlying.clear_state()
         self._underlying.C = best_C
         return best_C
 
@@ -133,11 +133,8 @@ class LpModel(Model):
             pairs (List[Pair]): The pairs
         """
         pairs = _filter_pairs(X, pairs)
-        if isinstance(self._underlying, ConstraintColumnModel):
-            X_tilde = compute_X_tilde(X, pairs)
-            self._underlying.fit(X_tilde, pairs)
-        else:
-            self._underlying.fit(X, pairs)
+        X_tilde = compute_X_tilde(X, pairs)
+        self._underlying.fit(X_tilde, pairs)
 
     def predict(self, X):
         return self._underlying.predict(X)

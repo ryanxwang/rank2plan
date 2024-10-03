@@ -1,4 +1,4 @@
-from rank2plan import Model, Pair, LossType, PenalisationType
+from rank2plan import Pair, LossType, PenalisationType
 from rank2plan.lp_models.constraint_column_generation.smoothing_hinge_loss import (
     loop_smoothing_hinge_loss_columns_samples_restricted,
     loop_smoothing_hinge_loss_samples_restricted,
@@ -8,6 +8,7 @@ from rank2plan.lp_models.objective_values import (
     compute_regularisation_objective,
     compute_overall_objective,
 )
+from rank2plan.lp_models.lp_underlying import LpUnderlying
 from rank2plan.lp_models.constraint_column_generation.utils import compute_X_tilde
 from pulp import LpSolver, LpProblem, LpMinimize, LpVariable, lpSum, lpDot, LpConstraint
 from typing import List, Optional, Tuple
@@ -33,7 +34,7 @@ class FitState:
     feature_indices: List[int]
 
 
-class ConstraintColumnModel(Model):
+class ConstraintColumnModel(LpUnderlying):
     def __init__(
         self, solver: LpSolver, C: float, tol: float, no_feature_sampling=False
     ) -> None:
@@ -41,22 +42,33 @@ class ConstraintColumnModel(Model):
         if solver.mip == True:
             raise ValueError("solver must be configured for LP, use mip=False")
         self.solver = solver
-        self.C = C
+        self._C = C
         self.tol = tol
         self.no_feature_sampling = no_feature_sampling
         self.state: Optional[FitState] = None
         self._weights: Optional[ndarray] = None
 
+    def clear_state(self) -> None:
+        self.state = None
+
+    @property
+    def C(self) -> float:
+        return self._C
+
+    @C.setter
+    def C(self, value: float) -> None:
+        self._C = value
+
     def fit(self, X_tilde: ndarray, pairs: List[Pair], save_state=False) -> None:
         start = time()
         if self.no_feature_sampling:
             constraint_indices = _init_constraint_sampling_smoothing(
-                X_tilde, pairs, self.C
+                X_tilde, pairs, self._C
             )
             feature_indices = list(range(X_tilde.shape[1]))
         else:
             constraint_indices, feature_indices = (
-                _init_constraint_column_sampling_smoothing(X_tilde, pairs, self.C)
+                _init_constraint_column_sampling_smoothing(X_tilde, pairs, self._C)
             )
         LOGGER.info(
             f"Initial constraint and column sampling done in {time() - start:.3f} seconds"
@@ -76,8 +88,8 @@ class ConstraintColumnModel(Model):
         # this X_tilde must be the same as the one used in the initial fit, we
         # don't save it to save memory
         assert self.state is not None
-        LOGGER.info(f"Refitting with C value changed from {self.C} to {C}")
-        self.C = C
+        LOGGER.info(f"Refitting with C value changed from {self._C} to {C}")
+        self._C = C
         self.state.problem = self._rebuild_subproblem_objective(self.state.problem)
         self._fit(X_tilde)
         if not save_state:
@@ -138,7 +150,7 @@ class ConstraintColumnModel(Model):
             X_tilde_reduced = X_tilde[self.state.constraint_indices, :][
                 :, features_to_check
             ]
-            reduced_costs_features = (1 / self.C) * np.ones(
+            reduced_costs_features = (1 / self._C) * np.ones(
                 len(features_to_check)
             ) - np.abs(np.dot(X_tilde_reduced.T, dual_values))
             violated_features = np.array(features_to_check)[
@@ -239,7 +251,7 @@ class ConstraintColumnModel(Model):
         )
         LOGGER.info(f"Pulp objective: {self.state.problem.objective.value()}")  # type: ignore
         LOGGER.info(
-            f"Overall objective: {compute_overall_objective(X_tilde, self.state.pairs, self._weights, self.C)}"
+            f"Overall objective: {compute_overall_objective(X_tilde, self.state.pairs, self._weights, self._C)}"
         )
         LOGGER.info(
             f"Main objective: {compute_main_objective(X_tilde, self.state.pairs, self._weights)}"
@@ -289,7 +301,7 @@ class ConstraintColumnModel(Model):
         ]
 
         problem += (
-            self.C * lpDot(sample_weights, xi) + lpSum(beta_plus) + lpSum(beta_minus)
+            self._C * lpDot(sample_weights, xi) + lpSum(beta_plus) + lpSum(beta_minus)
         )
 
         # The selected constraints using the selected features
@@ -384,7 +396,7 @@ class ConstraintColumnModel(Model):
             sample_weights_to_add.append(pair.sample_weight)
 
         problem.setObjective(
-            problem.objective + lpDot(xis_to_add, sample_weights_to_add) * self.C
+            problem.objective + lpDot(xis_to_add, sample_weights_to_add) * self._C
         )
         LOGGER.info("Constraints added and objective updated")
 
@@ -416,7 +428,7 @@ class ConstraintColumnModel(Model):
             for constraint_id in self.state.constraint_indices
         ]
         problem.setObjective(
-            self.C * lpDot(xis, sample_weights) + lpSum(beta_plus) + lpSum(beta_minus)
+            self._C * lpDot(xis, sample_weights) + lpSum(beta_plus) + lpSum(beta_minus)
         )
         LOGGER.info("Rebuilt subproblem objective")
         return problem
