@@ -49,7 +49,7 @@ def miconic_mock_dataset() -> Tuple[ndarray, List[Pair]]:
     ]
 
     # sample only some pairs for speed
-    pairs = pairs[:200]
+    # pairs = pairs[:200]
     return (X, pairs)
 
 

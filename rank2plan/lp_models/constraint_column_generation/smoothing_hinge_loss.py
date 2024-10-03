@@ -2,8 +2,9 @@ import numpy as np
 from numpy import ndarray
 import time
 import math
-from rank2plan import Pair, LossType, PenalisationType
+from rank2plan import LossType, PenalisationType, Matrix
 import logging
+from scipy.sparse import issparse
 
 LOGGER = logging.getLogger(__name__)
 
@@ -11,20 +12,21 @@ LOGGER = logging.getLogger(__name__)
 def smoothing_hinge_loss(
     loss_type: LossType,
     penalisation_type: PenalisationType,
-    X_tilde: ndarray,
+    X_tilde: Matrix,
     pairs: ndarray,
     alpha: float,
     beta_start: ndarray,
     highest_eig: float,
     tau: float,
     n_iter: int,
-    is_sparse=False,
 ):
     # TYPE_PENALIZATION = 1 : L1 -> soft thresholding
     # TYPE_PENALIZATION = 2 : L2
+    is_sparse = issparse(X_tilde)
 
     # ---Initialization
     start_time = time.time()
+    assert X_tilde.shape is not None
     N, P = X_tilde.shape
 
     old_beta = np.ones(P)
@@ -48,7 +50,7 @@ def smoothing_hinge_loss(
 
     while np.linalg.norm(beta_m - old_beta) > 1e-3 and test < n_iter:
         test += 1
-        aux = gs - (np.dot(X_tilde, beta_m) if not is_sparse else X_tilde.dot(beta_m))
+        aux = gs - (np.dot(X_tilde, beta_m) if not is_sparse else X_tilde.dot(beta_m))  # type: ignore
 
         # ---Hinge loss
         if loss_type == LossType.Hinge:
@@ -100,11 +102,11 @@ def smoothing_hinge_loss(
     ##### USE B0 !!!!!!!
     if not is_sparse:
         constraints = 1.05 * gs - (
-            np.dot(X_tilde[:, idx_columns_smoothing], beta_m[idx_columns_smoothing])
+            np.dot(X_tilde[:, idx_columns_smoothing], beta_m[idx_columns_smoothing])  # type: ignore
         )
     else:
         constraints = 1.05 * gs - (
-            X_tilde[:, idx_columns_smoothing].dot(beta_m[idx_columns_smoothing])
+            X_tilde[:, idx_columns_smoothing].dot(beta_m[idx_columns_smoothing])  # type: ignore
         )
 
     idx_samples_smoothing = np.arange(N)[constraints >= 0]
@@ -123,92 +125,11 @@ def smoothing_hinge_loss(
     )
 
 
-# # def loop_smoothing_hinge_loss(
-# #     type_loss,
-# #     type_penalization,
-# #     X,
-# #     y,
-# #     alpha,
-# #     tau_max,
-# #     n_loop,
-# #     n_iter,
-# #     f,
-# #     is_sparse=False,
-# # ):
-
-# #     # n_loop: how many times should we run the loop ?
-# #     # Apply the smoothing technique from the best subset selection
-
-# #     start_time = time.time()
-# #     N, P = X.shape
-# #     old_beta = -np.ones(P + 1)
-
-# #     # ---New matrix and SVD
-# #     if not is_sparse:
-# #         X_add = 1 / math.sqrt(N) * np.ones((N, P + 1))
-# #         X_add[:, :P] = X
-# #         highest_eig = power_method(X_add)
-# #     else:
-# #         X_add = csr_matrix(hstack([X, coo_matrix(1 / math.sqrt(N) * np.ones((N, 1)))]))
-# #         highest_eig = power_method(X_add, is_sparse=True)
-
-# #     beta_smoothing = np.zeros(P + 1)
-# #     time_smoothing_sum = 0
-
-# #     tau = tau_max
-
-# #     test = 0
-# #     while np.linalg.norm(beta_smoothing - old_beta) > 1e-3 and test < n_loop:
-# #         print("TEST CV BEFORE TAU: " + str(np.linalg.norm(beta_smoothing - old_beta)))
-
-# #         test += 1
-# #         old_beta = beta_smoothing
-
-# #         idx_samples, idx_columns, time_smoothing, beta_smoothing = smoothing_hinge_loss(
-# #             type_loss,
-# #             type_penalization,
-# #             X,
-# #             y,
-# #             alpha,
-# #             beta_smoothing,
-# #             X_add,
-# #             highest_eig,
-# #             tau,
-# #             n_iter,
-# #             f,
-# #             is_sparse,
-# #         )
-
-# #         # ---Update parameters
-# #         time_smoothing_sum += time_smoothing
-# #         tau = 0.7 * tau
-
-# #     # print beta_smoothing[idx_columns]
-
-# #     time_smoothing_tot = time.time() - start_time
-# #     write_and_print("\nNumber of iterations              : " + str(test), f)
-# #     write_and_print(
-# #         "Total time smoothing for "
-# #         + str(type_loss)
-# #         + ": "
-# #         + str(round(time_smoothing_tot, 3)),
-# #         f,
-# #     )
-
-# #     return (
-# #         idx_samples,
-# #         idx_columns,
-# #         time_smoothing_sum,
-# #         beta_smoothing[:-1],
-# #         beta_smoothing[-1],
-# #     )
-
-
 def loop_smoothing_hinge_loss_samples_restricted(
     loss_type: LossType,
     penalisation_type: PenalisationType,
     pairs: ndarray,
-    X_tilde: ndarray,
+    X_tilde: Matrix,
     alpha: float,
     tau_max: float,
     n_loop: int,
@@ -219,6 +140,7 @@ def loop_smoothing_hinge_loss_samples_restricted(
 
     start_time = time.time()
 
+    assert X_tilde.shape is not None
     N, P = X_tilde.shape
     old_beta = -np.ones(P)
 
@@ -231,7 +153,7 @@ def loop_smoothing_hinge_loss_samples_restricted(
 
     # ---Prepare for restrcition
     idx_samples = np.arange(N)
-    X_tilde_reduced = X_tilde
+    X_tilde_reduced: Matrix = X_tilde
     pairs_reduced = pairs
 
     test = -1
@@ -257,7 +179,7 @@ def loop_smoothing_hinge_loss_samples_restricted(
 
         if test == 0:
             # ---Restrict to samples
-            X_tilde_reduced = X_tilde[idx_samples_restricted, :]
+            X_tilde_reduced = X_tilde[idx_samples_restricted, :]  # type: ignore
             pairs_reduced = pairs[idx_samples_restricted]
 
             highest_eig = power_method(X_tilde_reduced)
@@ -276,7 +198,7 @@ def loop_smoothing_hinge_loss_samples_restricted(
 def loop_smoothing_hinge_loss_columns_samples_restricted(
     loss_type: LossType,
     penalisation_type: PenalisationType,
-    X_tilde: ndarray,
+    X_tilde: Matrix,
     pairs: ndarray,
     alpha,
     tau_max,
@@ -285,6 +207,7 @@ def loop_smoothing_hinge_loss_columns_samples_restricted(
 ):
 
     start_time = time.time()
+    assert X_tilde.shape is not None
     N, P = X_tilde.shape
     old_beta = -np.ones(P)
 
@@ -296,7 +219,7 @@ def loop_smoothing_hinge_loss_columns_samples_restricted(
     tau = tau_max
 
     # ---Prepare for restriction
-    X_tilde_reduced = X_tilde
+    X_tilde_reduced: Matrix = X_tilde
     pairs_reduced = pairs
     idx_columns_restricted = np.arange(P)
 
@@ -330,7 +253,8 @@ def loop_smoothing_hinge_loss_columns_samples_restricted(
 
         if test == 0:
             # ---Dont change samples -> just restrict columns
-            X_tilde_reduced = X_tilde_reduced[:, idx_columns_restricted]
+            X_tilde_reduced = X_tilde_reduced[:, idx_columns_restricted]  # type: ignore
+            assert X_tilde_reduced.shape is not None
             P_reduced = X_tilde_reduced.shape[1]
 
             highest_eig = power_method(X_tilde_reduced)
@@ -352,16 +276,17 @@ def loop_smoothing_hinge_loss_columns_samples_restricted(
     return beta_smoothing_sample
 
 
-def power_method(X: ndarray, is_sparse=False) -> float:
+def power_method(X: Matrix) -> float:
     """Compute the highest eigenvalue of X^T X.
 
     Args:
-        X (ndarray): The matrix to compute the highest eigenvalue of.
-        is_sparse (bool, optional): Whether X is sparse. Defaults to False.
+        X (Matrix): The matrix to compute the highest eigenvalue of.
 
     Returns:
         float: The highest eigenvalue of X^T X.
     """
+    is_sparse = issparse(X)
+    assert X.shape is not None
     P = X.shape[1]
 
     highest_eigvctr = np.random.rand(P)
@@ -370,14 +295,14 @@ def power_method(X: ndarray, is_sparse=False) -> float:
     while np.linalg.norm(highest_eigvctr - old_highest_eigvctr) > 1e-2:
         old_highest_eigvctr = highest_eigvctr
         highest_eigvctr = (
-            np.dot(X.T, np.dot(X, highest_eigvctr))
+            np.dot(X.T, np.dot(X, highest_eigvctr))  # type: ignore
             if not is_sparse
             else X.T.dot(X.dot(highest_eigvctr))
         )
         highest_eigvctr /= np.linalg.norm(highest_eigvctr)
 
     X_highest_eig = (
-        np.dot(X, highest_eigvctr) if not is_sparse else X.dot(highest_eigvctr)
+        np.dot(X, highest_eigvctr) if not is_sparse else X.dot(highest_eigvctr)  # type: ignore
     )
 
     highest_eig = np.dot(X_highest_eig.T, X_highest_eig) / np.linalg.norm(
