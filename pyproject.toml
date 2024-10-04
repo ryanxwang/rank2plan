@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rank2plan"
-version = "0.2.0"
+version = "0.3.0"
 description = ""
 authors = ["Ryan Wang <ryanxiaowang2001@gmail.com>"]
 readme = "README.md"
