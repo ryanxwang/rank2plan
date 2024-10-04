@@ -25,8 +25,6 @@ See under `tests` for examples.
 
 ## Todo
 
-- [ ] Support for sparse matrices and vectors
-- [x] Bayesian optimisation for tuning the `C` value.
 - [ ] We log pretty aggressively, probably should add a verbosity control
 
 ## References
