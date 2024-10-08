@@ -9,6 +9,8 @@ loss. See `documents/theory.pdf` for how we extend their work. The "2plan" part
 of the package name comes from the tool being used to learn heuristics for
 planning.
 
+LazyLifted supports the PDDL requirements `strips`, `negative-preconditions`, `typing`, and `equality`. Action costs will be supported soon.
+
 ## Installation
 
 Install with
